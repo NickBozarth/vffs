@@ -94,4 +94,8 @@ impl INodeTable {
             self.by_ino.remove(&ino);
         }
     }
+
+    pub fn by_path<P: AsRef<Path>>(&self, path: P) -> Option<INodeNo> {
+        self.by_path.get(path.as_ref()).copied()
+    }
 }

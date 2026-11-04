@@ -1,6 +1,6 @@
-use std::{ffi::{CString, OsStr, OsString}, fs::{self, Metadata, OpenOptions}, os::unix::{ffi::OsStrExt, fs::{DirEntryExt, PermissionsExt}}, path::{Path, PathBuf}, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}};
+use std::{ffi::{CString, OsStr, OsString}, fs::{self, Metadata, OpenOptions}, io, os::unix::{ffi::OsStrExt, fs::{DirEntryExt, FileExt, OpenOptionsExt, PermissionsExt}}, path::{Path, PathBuf}, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
-use fuser::{FileAttr, FileHandle, FileType, INodeNo, TimeOrNow};
+use fuser::{FileAttr, FileHandle, FileType, INodeNo, OpenAccMode, OpenFlags, TimeOrNow};
 
 use crate::fs::{errors::{MapperError, MapperResult}, handle_manager::HandleManager, inode_table::INodeTable, inode_table::ROOT, utils::{c_ret_to_io_res, metadata_to_attr, new_dir_entries, to_timespec, type_from_std_type}};
 
@@ -105,7 +105,7 @@ impl Mapper {
         self.attr(ino, &meta)
     }
 
-    fn list_dir(&self, ino: INodeNo) -> MapperResult<Vec<(INodeNo, FileType, OsString)>> {
+    pub fn list_dir(&self, ino: INodeNo) -> MapperResult<Vec<(INodeNo, FileType, OsString)>> {
         let path = self.path_of(ino)?;
         let table = self.table_read()?;
 
@@ -183,5 +183,57 @@ impl Mapper {
         }
 
         self.getattr(ino, args.fh)
+    }
+
+    pub fn open(&self, ino: INodeNo, flags: OpenFlags) -> MapperResult<FileHandle> {
+        let raw = flags.0;
+        let mut options = OpenOptions::new();
+        match flags.acc_mode() {
+            OpenAccMode::O_RDONLY => { options.read(true); }
+            OpenAccMode::O_WRONLY => { options.write(true); }
+            OpenAccMode::O_RDWR => { options.read(true).write(true); }
+        }
+        if raw & libc::O_APPEND != 0 { options.append(true); }
+        if raw & libc::O_TRUNC != 0 { options.truncate(true); }
+        options.custom_flags(
+            raw & !(
+                libc::O_ACCMODE | libc::O_APPEND | libc::O_TRUNC | libc::O_CREAT
+            ));
+
+        let source = self.path_of(ino)?;
+        let file = options.open(&source).map_err(MapperError::OpenError)?;
+        Ok(self.handles_write()?.register_handle(file, source))
+    }
+
+    pub fn read(&self, fh: FileHandle, offset: u64, size: u32) -> MapperResult<Box<[u8]>> {
+        let file = self.handles_read()?.get_file(fh)
+            .ok_or(MapperError::FileNotFound)?;
+
+        let mut buf = vec![0u8; size as usize];
+        let mut filled = 0;
+        while filled < buf.len() {
+            match file.read_at(&mut buf[filled..], offset + filled as u64) {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(MapperError::Io(err))
+            }
+        }
+
+        buf.truncate(filled);
+        Ok(buf.into_boxed_slice())
+    }
+
+    pub fn write(&self, fh: FileHandle, offset: u64, data: &[u8]) -> MapperResult<u32> {
+        let file = self.handles_read()?
+            .get_file(fh)
+            .ok_or(MapperError::FileNotFound)?;
+        file.write_all_at(data, offset)
+            .map_err(MapperError::Io);
+        Ok(data.len() as u32)
+    }
+
+    pub fn release(&self, fh: FileHandle) -> MapperResult<()> {
+        Ok(self.handles_write()?.release(fh))
     }
 }

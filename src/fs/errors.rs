@@ -1,16 +1,16 @@
 use std::io;
 
-use fuser::{Errno, FileHandle};
+use fuser::Errno;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MapperError {
+    #[error("Provided file was not registered in mapper")]
+    FileNotFound,
     #[error("Invalid flags provided")]
     InvalidFlags,
     #[error("Io error: {0}")]
     Io(std::io::Error),
-    #[error("Error when interfacing with HandleManager: {0}")]
-    ManagerError(ManagerError),
     #[error("Error fetching metadata: {0}")]
     MetadataFetchError(std::io::Error),
     #[error("Error parsing metadata: {0}")]
@@ -37,10 +37,9 @@ impl MapperError {
     pub fn errno(&self) -> Errno {
         match self {
             Self::InvalidFlags => Errno::EINVAL,
-            Self::UnregisteredINodeNo => Errno::ENOENT,
+            Self::UnregisteredINodeNo
+            | Self::FileNotFound => Errno::EBADF,
             Self::PoisonError => Errno::EIO,
-            Self::ManagerError(ManagerError::FileHandleNotFound(_)) => Errno::EBADF,
-            Self::ManagerError(_) => Errno::EIO,
             Self::MetadataFetchError(e)
             | Self::MetadataParseError(e)
             | Self::OpenError(e)
@@ -49,14 +48,3 @@ impl MapperError {
         }
     }
 }
-
-
-#[derive(Debug, Error)]
-pub enum ManagerError {
-    #[error("Requested FileHandle ({0}) is not a registered file")]
-    FileHandleNotFound(FileHandle),
-    #[error("Attempted to access a poisoned mutex")]
-    PoisonError,
-}
-
-pub type ManagerResult<T> = Result<T, ManagerError>;

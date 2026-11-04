@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod TestINodeTable {
+mod test_inode_table {
     use std::path::Path;
 
 use vffs::inode_table::{INodeTable, ROOT};
@@ -8,7 +8,7 @@ use vffs::inode_table::{INodeTable, ROOT};
     fn test_path_of_root() {
         let root_path = Path::new("root_path");
         let t = INodeTable::new(root_path);
-        assert!(t.path_of(ROOT) == Some(root_path))
+   assert!(t.path_of(ROOT) == Some(root_path))
     }
 
     #[test]
@@ -61,5 +61,51 @@ use vffs::inode_table::{INodeTable, ROOT};
         // this should also drop ino from table
         t.forget(other_ino, 1);
         assert!(t.path_of(other_ino).is_none());
+    }
+}
+
+#[cfg(test)]
+mod test_handle_manager {
+    use std::{fs, sync::Arc};
+
+use tempfile::tempdir;
+use vffs::handle_manager::HandleManager;
+
+
+    #[test]
+    fn test_get_file() {
+        let temp_dir = tempdir().unwrap();
+        let temp_path = temp_dir.path();
+        let f = fs::File::open(temp_path).unwrap();
+        let mut hm = HandleManager::new();
+
+        let handle = hm.register_handle(f, temp_path);
+        let first = hm.get_file(handle).unwrap();
+        let second = hm.get_file(handle).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_path_of() {
+        let temp_dir = tempdir().unwrap();
+        let temp_path = temp_dir.path();
+        let f = fs::File::open(temp_path).unwrap();
+        let mut hm = HandleManager::new();
+
+        let handle = hm.register_handle(f, temp_path);
+        assert!(hm.path_of(handle) == Some(temp_path.to_path_buf()));
+    }
+
+    #[test]
+    fn test_release() {
+        let temp_dir = tempdir().unwrap();
+        let temp_path = temp_dir.path();
+        let f = fs::File::open(temp_path).unwrap();
+        let mut hm = HandleManager::new();
+
+        let handle = hm.register_handle(f, temp_path);
+        assert!(hm.path_of(handle) == Some(temp_path.to_path_buf()));
+        hm.release(handle);
+        assert!(hm.path_of(handle).is_none());
     }
 }

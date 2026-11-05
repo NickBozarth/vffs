@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::File, path::{Path, PathBuf}, sync::{Arc, RwL
 
 use fuser::FileHandle;
 
-use crate::errors::{ManagerError, ManagerResult};
+use crate::fs::errors::{ManagerError, ManagerResult};
 
 
 pub struct OpenFile {

@@ -1,8 +1,8 @@
 use std::{cell::LazyCell, ffi::{CString, OsStr, OsString}, fs::{self, Metadata, OpenOptions}, io, os::unix::{ffi::OsStrExt, fs::{DirEntryExt, FileExt, OpenOptionsExt, PermissionsExt}}, path::{Path, PathBuf}, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
-use fuser::{Errno, FileAttr, FileHandle, FileType, INodeNo, OpenAccMode, OpenFlags, TimeOrNow};
+use fuser::{FileAttr, FileHandle, FileType, INodeNo, OpenAccMode, OpenFlags, TimeOrNow};
 
-use crate::{errors::ManagerResult, fs::{errors::{MapperError, MapperResult}, handle_manager::HandleManager, inode_table::{INodeTable, ROOT}, utils::{c_ret_to_io_res, metadata_to_attr, new_dir_entries, to_timespec, type_from_std_type}}};
+use crate::fs::{errors::{MapperError, MapperResult}, handle_manager::HandleManager, inode_table::{INodeTable, ROOT}, utils::{c_ret_to_io_res, metadata_to_attr, new_dir_entries, to_timespec, type_from_std_type}};
 
 
 pub struct SetAttrArgs {

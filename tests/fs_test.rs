@@ -2,7 +2,7 @@
 mod test_inode_table {
     use std::path::Path;
 
-use vffs::inode_table::{INodeTable, ROOT};
+    use vffs::inode_table::{INodeTable, ROOT};
 
     #[test]
     fn test_path_of_root() {
@@ -68,8 +68,8 @@ use vffs::inode_table::{INodeTable, ROOT};
 mod test_handle_manager {
     use std::{fs, sync::Arc};
 
-use tempfile::tempdir;
-use vffs::handle_manager::HandleManager;
+    use tempfile::tempdir;
+    use vffs::handle_manager::HandleManager;
 
 
     #[test]
@@ -107,5 +107,172 @@ use vffs::handle_manager::HandleManager;
         assert!(hm.path_of(handle) == Some(temp_path.to_path_buf()));
         hm.release(handle);
         assert!(hm.path_of(handle).is_none());
+    }
+}
+
+#[cfg(test)]
+mod test_fs {
+    use std::{fs, io::ErrorKind, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, time::{Duration, UNIX_EPOCH}};
+
+    use fuser::BackgroundSession;
+    use tempfile::{TempDir, tempdir};
+    use vffs::fs::fs::FaultInjectionFileSystem;
+
+    struct TempFs {
+        _session: BackgroundSession,
+        src: TempDir,
+        mnt: TempDir
+    }
+
+    impl TempFs {
+        pub fn new() -> Self {
+            let src = tempdir().unwrap();
+            let mnt = tempdir().unwrap();
+
+            let session = FaultInjectionFileSystem::new(
+                src.path(),
+                mnt.path(),
+                Duration::from_secs(1)
+            )
+                .spawn_mount()
+                .unwrap();
+
+            Self { src, mnt, _session: session }
+        }
+
+        pub fn join_src<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+            self.src.path().join(path)
+        }
+
+        pub fn join_mnt<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+            self.src.path().join(path)
+        }
+    }
+
+
+    fn list_dir<P: AsRef<Path>>(dir: P) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .map(|osstring| osstring.into_string().unwrap())
+            .collect();
+        v.sort();
+        v
+    }
+
+
+    #[test]
+    fn ls_src_matches_mnt() {
+        let tfs = TempFs::new();
+        fs::write(tfs.join_src("a"), b"").unwrap();
+        fs::write(tfs.join_src("b"), b"").unwrap();
+        fs::create_dir(tfs.join_src("c")).unwrap();
+        assert!(list_dir(tfs.src.path()) == vec!["a", "b", "c"]);
+        assert!(list_dir(tfs.mnt.path()) == vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn ls_dir_in_dir_matches_mnt() {
+        let tfs = TempFs::new();
+        fs::create_dir_all(tfs.join_src("a/b"))
+            .unwrap();
+        fs::create_dir(tfs.join_src("a/c"))
+            .unwrap();
+
+        assert!(list_dir(tfs.join_src("a")) == vec!["b", "c"]);
+        assert!(list_dir(tfs.join_src("a")) == vec!["b", "c"]);
+    }
+
+    #[test]
+    fn test_mkdir_in_mnt_() {
+        let tfs = TempFs::new();
+        fs::create_dir(tfs.join_mnt("a")).unwrap();
+        fs::create_dir(tfs.join_mnt("b")).unwrap();
+        fs::create_dir(tfs.join_mnt("c")).unwrap();
+
+        assert!(list_dir(tfs.src.path()) == vec!["a", "b", "c"]);
+        assert!(list_dir(tfs.mnt.path()) == vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_meta_is_tracked() {
+        let tfs = TempFs::new();
+
+        for i in 0..10 {
+            let path = tfs.join_src(format!("f{i}"));
+            fs::write(&path, vec![b'a'; i]).unwrap();
+
+            let meta = fs::symlink_metadata(path).unwrap();
+            assert!(meta.is_file());
+            assert!(meta.len() == i as u64);
+        }
+    }
+
+    #[test]
+    fn test_dir_on_file() {
+        let tfs = TempFs::new();
+        fs::write(tfs.join_mnt("a"), b"").unwrap();
+        assert!(fs::read_dir(tfs.join_mnt("a")).is_err());
+    }
+
+    #[test]
+    fn test_not_found() {
+        let tfs = TempFs::new();
+        let error = fs::metadata(tfs.join_mnt("not_a_file")).unwrap_err();
+        assert!(error.kind() == ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_change_perms() {
+        let tfs = TempFs::new();
+        fs::write(tfs.join_mnt("a"), b"").unwrap();
+        let old_perms = fs::metadata(tfs.join_mnt("a"))
+            .unwrap()
+            .permissions()
+            .mode();
+
+        fs::set_permissions(
+            tfs.join_mnt("a"),
+            fs::Permissions::from_mode(0o111)
+        )
+            .unwrap();
+
+        let new_perms = fs::metadata(tfs.join_mnt("a"))
+            .unwrap()
+            .permissions()
+            .mode();
+
+        assert!(old_perms != new_perms);
+        assert!(new_perms & 0o777 == 0o111);
+    }
+
+    #[test]
+    fn test_read_write() {
+        let tfs = TempFs::new();
+        fs::write(tfs.join_mnt("a"), b"test").unwrap();
+        let read = fs::read(tfs.join_mnt("a"))
+            .unwrap();
+
+        assert!(read.as_slice() == b"test");
+    }
+
+    #[test]
+    fn test_set_modified() {
+        let tfs = TempFs::new();
+        fs::write(tfs.join_mnt("a"), b"").unwrap();
+        let new_time = UNIX_EPOCH + Duration::from_secs(100);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(tfs.join_mnt("a"))
+            .unwrap()
+            .set_modified(new_time)
+            .unwrap();
+
+        let modified = fs::metadata(tfs.join_mnt("a"))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        assert!(new_time == modified);
     }
 }

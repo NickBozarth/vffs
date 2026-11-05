@@ -2,6 +2,8 @@ use std::{collections::HashMap, fs::File, path::{Path, PathBuf}, sync::{Arc, RwL
 
 use fuser::FileHandle;
 
+use crate::errors::{ManagerError, ManagerResult};
+
 
 pub struct OpenFile {
     file: Arc<File>,
@@ -48,5 +50,17 @@ impl HandleManager {
     pub fn release(&mut self, fh: FileHandle) {
         self.open_handles
             .remove(&fh);
+    }
+
+    pub fn fsync(&mut self, fh: FileHandle, datasync: bool) -> ManagerResult<()> {
+        if let Some(ofile) = self.open_handles.get(&fh) {
+            if datasync {
+                ofile.file.sync_data().map_err(ManagerError::FsyncError)
+            } else {
+                ofile.file.sync_all().map_err(ManagerError::FsyncError)
+            }
+        } else {
+            Ok(())
+        }
     }
 }

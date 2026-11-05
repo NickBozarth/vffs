@@ -1,6 +1,6 @@
 use std::io;
 
-use fuser::Errno;
+use fuser::{Errno, FileHandle};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -11,6 +11,8 @@ pub enum MapperError {
     InvalidFlags,
     #[error("Io error: {0}")]
     Io(std::io::Error),
+    #[error("Error when interfacing with HandleManager: {0}")]
+    ManagerError(ManagerError),
     #[error("Error fetching metadata: {0}")]
     MetadataFetchError(std::io::Error),
     #[error("Error parsing metadata: {0}")]
@@ -32,19 +34,41 @@ fn io_errno(e: &io::Error) -> Errno {
 }
 
 impl MapperError {
-    /// The errno the kernel should see. Keeps EACCES, ENOTDIR, ENOSPC, etc. intact
-    /// instead of everything becoming ENOENT.
     pub fn errno(&self) -> Errno {
         match self {
             Self::InvalidFlags => Errno::EINVAL,
             Self::UnregisteredINodeNo
             | Self::FileNotFound => Errno::EBADF,
             Self::PoisonError => Errno::EIO,
+            Self::ManagerError(e) => e.errno(),
             Self::MetadataFetchError(e)
             | Self::MetadataParseError(e)
             | Self::OpenError(e)
             | Self::Io(e)
             | Self::ReadDirError(e) => io_errno(e),
+        }
+    }
+}
+
+
+#[derive(Debug, Error)]
+pub enum ManagerError {
+    #[error("Provided FileHandle ({0}) was not found")]
+    FileHandleNotFound(FileHandle),
+    #[error("Io error: {0}")]
+    Io(std::io::Error),
+    #[error("Error on fsync call: {0}")]
+    FsyncError(std::io::Error),
+}
+
+pub type ManagerResult<T> = Result<T, ManagerError>;
+
+impl ManagerError {
+    pub fn errno(&self) -> Errno {
+        match self {
+            Self::FileHandleNotFound(_) => Errno::ENOENT,
+            Self::Io(e)
+            | Self::FsyncError(e) => io_errno(e)
         }
     }
 }

@@ -1,8 +1,8 @@
-use std::{ffi::{CString, OsStr, OsString}, fs::{self, Metadata, OpenOptions}, io, os::unix::{ffi::OsStrExt, fs::{DirEntryExt, FileExt, OpenOptionsExt, PermissionsExt}}, path::{Path, PathBuf}, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}};
+use std::{cell::LazyCell, ffi::{CString, OsStr, OsString}, fs::{self, Metadata, OpenOptions}, io, os::unix::{ffi::OsStrExt, fs::{DirEntryExt, FileExt, OpenOptionsExt, PermissionsExt}}, path::{Path, PathBuf}, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
-use fuser::{FileAttr, FileHandle, FileType, INodeNo, OpenAccMode, OpenFlags, TimeOrNow};
+use fuser::{Errno, FileAttr, FileHandle, FileType, INodeNo, OpenAccMode, OpenFlags, TimeOrNow};
 
-use crate::fs::{errors::{MapperError, MapperResult}, handle_manager::HandleManager, inode_table::INodeTable, inode_table::ROOT, utils::{c_ret_to_io_res, metadata_to_attr, new_dir_entries, to_timespec, type_from_std_type}};
+use crate::{errors::ManagerResult, fs::{errors::{MapperError, MapperResult}, handle_manager::HandleManager, inode_table::{INodeTable, ROOT}, utils::{c_ret_to_io_res, metadata_to_attr, new_dir_entries, to_timespec, type_from_std_type}}};
 
 
 pub struct SetAttrArgs {
@@ -29,6 +29,9 @@ impl Mapper {
         }
     }
 
+    // -----------------------------------------------------
+    // RwLock accessors; These will lock if RwLock is in use
+    // -----------------------------------------------------
     fn table_read(&self) -> MapperResult<RwLockReadGuard<'_, INodeTable>> {
         self.table
             .read()
@@ -70,6 +73,29 @@ impl Mapper {
         Ok(attr)
     }
 
+    // Retrieves ino of parent of a given ino or path
+    // Defaults to ROOT if not found
+    fn get_parent_ino<P: AsRef<Path>>(&self, ino: INodeNo, path_opt: Option<P>) -> MapperResult<INodeNo> {
+        let path = match path_opt {
+            Some(path) => path.as_ref().to_path_buf(),
+            None => self.path_of(ino)?
+        };
+
+        if ino == ROOT {
+            Ok(ROOT)
+        } else {
+            let parent_ino = path.parent()
+                .and_then(|p| {
+                    self.table_read()
+                        .ok()?
+                        .by_path(p)
+                })
+                .unwrap_or(ROOT);
+
+            Ok(parent_ino)
+        }
+    }
+
     // Retrieves attr from a given parent INodeNo and name
     // NOTE self.table registers ino when table.lookup is called
     pub fn lookup(&self, parent: INodeNo, name: &OsStr) -> MapperResult<FileAttr> {
@@ -81,6 +107,8 @@ impl Mapper {
         self.attr(ino, &meta)
     }
 
+
+    // Subtracts reference count on a given ino and cleans up table if count <= 0
     pub fn forget(&self, ino: INodeNo, nlookup: u64) -> MapperResult<()> {
         self.table_write()
             .map_err(|_| MapperError::PoisonError)?
@@ -89,6 +117,7 @@ impl Mapper {
         Ok(())
     }
 
+    // Retrieves FileAttr from a given FileHandle (if provided) or ino
     pub fn getattr(&self, ino: INodeNo, fh: Option<FileHandle>) -> MapperResult<FileAttr> {
         let file_opt = fh.and_then(|fh| {
             self.handles_read()
@@ -105,21 +134,12 @@ impl Mapper {
         self.attr(ino, &meta)
     }
 
+    // Retrieves a vec of identifiers within a directory
     pub fn list_dir(&self, ino: INodeNo) -> MapperResult<Vec<(INodeNo, FileType, OsString)>> {
         let path = self.path_of(ino)?;
         let table = self.table_read()?;
 
-        let parent_ino = if ino == ROOT {
-            ROOT
-        } else {
-            path.parent()
-                .and_then(|p| {
-                    self.table_read()
-                        .ok()?
-                        .by_path(p)
-                })
-                .unwrap_or(ROOT)
-        };
+        let parent_ino = self.get_parent_ino(ino, Some(&path))?;
 
         let mut entries = new_dir_entries(ino, parent_ino);
         for entry in fs::read_dir(path).map_err(MapperError::ReadDirError)? {
@@ -139,12 +159,16 @@ impl Mapper {
         Ok(entries)
     }
 
+    // Update certain attributes of a file
+    // Arguments given with a None variant are not updated
     pub fn setattr(&self, ino: INodeNo, args: SetAttrArgs) -> MapperResult<FileAttr> {
         let path = self.path_of(ino)?;
-        let open_file = args.fh
-            .and_then(|fh| {
-                self.handles_read().ok()?.get_file(fh)
-            });
+        let open_file = LazyCell::new(|| {
+            args.fh
+                .and_then(|fh| {
+                    self.handles_read().ok()?.get_file(fh)
+                })
+        });
 
         if let Some(mode) = args.mode {
             fs::set_permissions(&path, fs::Permissions::from_mode(mode))
@@ -155,7 +179,7 @@ impl Mapper {
             std::os::unix::fs::lchown(&path, args.uid, args.gid).map_err(MapperError::Io)?;
         }
         if let Some(size) = args.size {
-            match &open_file {
+            match &*open_file {
                 Some(f) => f.set_len(size),
                 None => {
                     OpenOptions::new()
@@ -185,6 +209,7 @@ impl Mapper {
         self.getattr(ino, args.fh)
     }
 
+    // Opens a given file with given flags
     pub fn open(&self, ino: INodeNo, flags: OpenFlags) -> MapperResult<FileHandle> {
         let raw = flags.0;
         let mut options = OpenOptions::new();
@@ -195,6 +220,8 @@ impl Mapper {
         }
         if raw & libc::O_APPEND != 0 { options.append(true); }
         if raw & libc::O_TRUNC != 0 { options.truncate(true); }
+
+        // Extract custom flags from raw flags by masking against pre-defined flags
         options.custom_flags(
             raw & !(
                 libc::O_ACCMODE | libc::O_APPEND | libc::O_TRUNC | libc::O_CREAT
@@ -205,6 +232,7 @@ impl Mapper {
         Ok(self.handles_write()?.register_handle(file, source))
     }
 
+    // Retrieves an owned slice of a requested size from a file
     pub fn read(&self, fh: FileHandle, offset: u64, size: u32) -> MapperResult<Box<[u8]>> {
         let file = self.handles_read()?.get_file(fh)
             .ok_or(MapperError::FileNotFound)?;
@@ -224,6 +252,7 @@ impl Mapper {
         Ok(buf.into_boxed_slice())
     }
 
+    // Writes a captured slice to a file
     pub fn write(&self, fh: FileHandle, offset: u64, data: &[u8]) -> MapperResult<u32> {
         let file = self.handles_read()?
             .get_file(fh)
@@ -233,7 +262,16 @@ impl Mapper {
         Ok(data.len() as u32)
     }
 
+    // Release a given FileHandle
+    // Usually called on close()
     pub fn release(&self, fh: FileHandle) -> MapperResult<()> {
         Ok(self.handles_write()?.release(fh))
+    }
+
+    // Flush modified data to disk
+    pub fn fsync(&self, fh: FileHandle, datasync: bool) -> MapperResult<()> {
+        self.handles_write()?
+            .fsync(fh, datasync)
+            .map_err(MapperError::ManagerError)
     }
 }

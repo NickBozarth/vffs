@@ -1,6 +1,6 @@
 use std::{ffi::OsStr, io, path::{Path, PathBuf}, time::{Duration, SystemTime}};
 
-use fuser::{BackgroundSession, BsdFileFlags, Config, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, OpenFlags, ReplyAttr, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
+use fuser::{BackgroundSession, BsdFileFlags, Config, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
 
 use crate::fs::{mapper::{Mapper, SetAttrArgs}};
 
@@ -123,6 +123,24 @@ impl Filesystem for FaultInjectionFileSystem {
     ) {
         match self.fs_mapper.open(ino, flags) {
             Ok(fh) => reply.opened(fh, FopenFlags::empty()),
+            Err(err) => reply.error(err.errno()),
+        }
+    }
+
+    fn read(
+        &self,
+        _req: &Request,
+        _ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
+        size: u32,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
+        reply: ReplyData,
+    )
+    {
+        match self.fs_mapper.read(fh, offset, size) {
+            Ok(data) => reply.data(&data),
             Err(err) => reply.error(err.errno()),
         }
     }

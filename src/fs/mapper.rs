@@ -258,7 +258,7 @@ impl Mapper {
             .get_file(fh)
             .ok_or(MapperError::FileNotFound)?;
         file.write_all_at(data, offset)
-            .map_err(MapperError::Io);
+            .map_err(MapperError::Io)?;
         Ok(data.len() as u32)
     }
 

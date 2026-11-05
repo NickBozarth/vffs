@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, path::{Path, PathBuf}, sync::{Arc, RwLock, atomic::AtomicU64}};
+use std::{collections::HashMap, fs::File, path::{Path, PathBuf}, sync::{Arc}};
 
 use fuser::FileHandle;
 

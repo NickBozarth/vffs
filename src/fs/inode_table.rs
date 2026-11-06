@@ -51,9 +51,9 @@ impl INodeTable {
     pub fn lookup<P: AsRef<Path>>(&mut self, path: P) -> INodeNo {
         match self.by_path.get(path.as_ref()) {
             Some(ino) => {
-                self.by_ino
-                    .get_mut(ino)
-                    .map(|entry| entry.nlookup += 1);
+                if let Some(entry) = self.by_ino.get_mut(ino) {
+                    entry.nlookup += 1;
+                }
 
                 *ino
             },

@@ -116,7 +116,7 @@ mod test_fs {
 
     use fuser::BackgroundSession;
     use tempfile::{TempDir, tempdir};
-    use vffs::fs::fs::FaultInjectionFileSystem;
+    use vffs::fs::fault_fs::FaultInjectionFileSystem;
 
     struct TempFs {
         _session: BackgroundSession,
@@ -275,4 +275,5 @@ mod test_fs {
 
         assert!(new_time == modified);
     }
+
 }

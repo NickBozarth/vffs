@@ -26,6 +26,8 @@ pub struct Args {
     rules_file: Option<PathBuf>,
 }
 
+// rules_file will either be provided or
+// {HOME}/.config/
 pub struct ValidatedArgs {
     pub source_dir: PathBuf,
     pub mountpoint: PathBuf,
@@ -52,7 +54,8 @@ impl Args {
                 let mut home_dir = home::home_dir()
                     .ok_or(ArgParseError::RuleConstructError)?;
 
-                home_dir.push("vffs");
+                home_dir.push("/.config");
+                home_dir.push("/vffs");
                 home_dir.push(source_basename);
                 home_dir.push(out_basename);
                 home_dir.set_extension("yaml");

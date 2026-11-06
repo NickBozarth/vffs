@@ -53,10 +53,6 @@ impl MapperError {
 
 #[derive(Debug, Error)]
 pub enum ManagerError {
-    #[error("Provided FileHandle ({0}) was not found")]
-    FileHandleNotFound(FileHandle),
-    #[error("Io error: {0}")]
-    Io(std::io::Error),
     #[error("Error on fsync call: {0}")]
     FsyncError(std::io::Error),
 }
@@ -66,9 +62,7 @@ pub type ManagerResult<T> = Result<T, ManagerError>;
 impl ManagerError {
     pub fn errno(&self) -> Errno {
         match self {
-            Self::FileHandleNotFound(_) => Errno::ENOENT,
-            Self::Io(e)
-            | Self::FsyncError(e) => io_errno(e)
+            Self::FsyncError(e) => io_errno(e)
         }
     }
 }

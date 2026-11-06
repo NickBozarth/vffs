@@ -64,3 +64,9 @@ impl HandleManager {
         }
     }
 }
+
+impl Default for HandleManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

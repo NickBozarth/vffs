@@ -2,7 +2,7 @@ use std::{sync::mpsc, time::Duration};
 
 use clap::Parser;
 
-use crate::fs::fs::FaultInjectionFileSystem;
+use crate::fs::fault_fs::FaultInjectionFileSystem;
 
 mod fs;
 mod args;

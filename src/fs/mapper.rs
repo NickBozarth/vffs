@@ -24,7 +24,7 @@ pub struct Mapper {
 impl Mapper {
     pub fn new<P: AsRef<Path>>(source_dir: P) -> Self {
         Self {
-            table: RwLock::new(INodeTable::new(source_dir.as_ref().to_path_buf())),
+            table: RwLock::new(INodeTable::new(source_dir)),
             handles: RwLock::new(HandleManager::new())
         }
     }
@@ -265,7 +265,8 @@ impl Mapper {
     // Release a given FileHandle
     // Usually called on close()
     pub fn release(&self, fh: FileHandle) -> MapperResult<()> {
-        Ok(self.handles_write()?.release(fh))
+        self.handles_write()?.release(fh);
+        Ok(())
     }
 
     // Flush modified data to disk

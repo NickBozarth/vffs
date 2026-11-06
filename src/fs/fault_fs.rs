@@ -15,13 +15,13 @@ impl FaultInjectionFileSystem {
         Self {
             mountpoint: mountpoint.as_ref().to_path_buf(),
             ttl: timeout,
-            fs_mapper: Mapper::new(source_dir.as_ref().to_path_buf())
+            fs_mapper: Mapper::new(source_dir.as_ref())
         }
     }
 
     pub fn spawn_mount(self) -> io::Result<BackgroundSession> {
         let mut options = Config::default();
-        options.mount_options.extend_from_slice(&vec![
+        options.mount_options.extend_from_slice(&[
             fuser::MountOption::RW,
             fuser::MountOption::FSName("vffs".to_string())
         ]);

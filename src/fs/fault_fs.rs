@@ -23,7 +23,6 @@ impl FaultInjectionFileSystem {
         let mut options = Config::default();
         options.mount_options.extend_from_slice(&[
             fuser::MountOption::RW,
-            fuser::MountOption::FSName("vffs".to_string())
         ]);
 
         let mountpoint = self.mountpoint.clone();

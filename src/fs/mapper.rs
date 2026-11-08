@@ -171,13 +171,25 @@ impl Mapper {
         });
 
         if let Some(mode) = args.mode {
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode))
-                .map_err(MapperError::Io)?;
+            if let Some(file) = &*open_file {
+                file.set_permissions(fs::Permissions::from_mode(mode))
+                    .map_err(MapperError::Io)?;
+            } else {
+                fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+                    .map_err(MapperError::Io)?;
+            }
         }
 
         if args.uid.is_some() || args.gid.is_some() {
-            std::os::unix::fs::lchown(&path, args.uid, args.gid).map_err(MapperError::Io)?;
+            if let Some(file) = &*open_file {
+                std::os::unix::fs::fchown(file, args.uid, args.gid)
+                    .map_err(MapperError::Io)?;
+            } else {
+                std::os::unix::fs::lchown(&path, args.uid, args.gid)
+                    .map_err(MapperError::Io)?;
+            }
         }
+
         if let Some(size) = args.size {
             match &*open_file {
                 Some(f) => f.set_len(size),

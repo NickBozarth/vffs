@@ -48,7 +48,7 @@ impl INodeTable {
     // Looks up corresponding ino from a path
     //  if ino is registered => increment nlookup and return ino
     //  else => create new INodeEntry with nlookup at 1 and return new ino
-    pub fn lookup<P: AsRef<Path>>(&mut self, path: P) -> INodeNo {
+    pub fn get_or_create_ino<P: AsRef<Path>>(&mut self, path: P) -> INodeNo {
         match self.by_path.get(path.as_ref()) {
             Some(ino) => {
                 if let Some(entry) = self.by_ino.get_mut(ino) {

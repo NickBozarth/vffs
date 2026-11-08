@@ -97,13 +97,12 @@ impl Mapper {
     }
 
     // Retrieves attr from a given parent INodeNo and name
-    // NOTE self.table registers ino when table.lookup is called
-    pub fn lookup(&self, parent: INodeNo, name: &OsStr) -> MapperResult<FileAttr> {
+    pub fn lookup_attr(&self, parent: INodeNo, name: &OsStr) -> MapperResult<FileAttr> {
         let path = self.path_of(parent)?.join(name);
         let meta = fs::symlink_metadata(&path)
             .map_err(MapperError::MetadataFetchError)?;
         let ino = self.table_write()?
-            .lookup(path);
+            .get_or_create_ino(path);
         self.attr(ino, &meta)
     }
 

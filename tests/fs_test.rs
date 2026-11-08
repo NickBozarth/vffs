@@ -16,7 +16,7 @@ mod test_inode_table {
         let mut t = INodeTable::new(Path::new("root_path"));
 
         let other_path = Path::new("other_path");
-        let other_ino = t.lookup(other_path);
+        let other_ino = t.get_or_create_ino(other_path);
         assert!(t.path_of(other_ino) == Some(other_path));
     }
 
@@ -25,8 +25,8 @@ mod test_inode_table {
         let mut t = INodeTable::new(Path::new("root_path"));
 
         let other_path = Path::new("other_path");
-        let first_other_ino = t.lookup(other_path);
-        let second_other_ino = t.lookup(other_path);
+        let first_other_ino = t.get_or_create_ino(other_path);
+        let second_other_ino = t.get_or_create_ino(other_path);
         assert!(first_other_ino == second_other_ino);
     }
 
@@ -36,7 +36,7 @@ mod test_inode_table {
         let mut prev_ino = ROOT;
 
         for i in 0..10 {
-            let new_ino = t.lookup(format!("file_{i}:02"));
+            let new_ino = t.get_or_create_ino(format!("file_{i}:02"));
             assert!(new_ino != prev_ino);
             prev_ino = new_ino;
         }
@@ -48,11 +48,11 @@ mod test_inode_table {
 
         let other_path = Path::new("other_path");
         // nlookup 0->1
-        let other_ino = t.lookup(other_path);
+        let other_ino = t.get_or_create_ino(other_path);
         // nlookup 1->2
-        t.lookup(other_path);
+        t.get_or_create_ino(other_path);
         // nlookup 2->3
-        t.lookup(other_path);
+        t.get_or_create_ino(other_path);
 
         // nlookup 3->1
         t.forget(other_ino, 2);

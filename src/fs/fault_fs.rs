@@ -38,7 +38,7 @@ impl Filesystem for FaultInjectionFileSystem {
         name: &OsStr,
         reply: ReplyEntry
     ) {
-        match self.fs_mapper.lookup(parent, name) {
+        match self.fs_mapper.lookup_attr(parent, name) {
             Ok(attr) => reply.entry(&self.ttl, &attr, Generation(0)),
             Err(err) => reply.error(err.errno()),
         }

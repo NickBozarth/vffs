@@ -27,6 +27,18 @@ fn resolve_meta_kind(meta: &Metadata) -> FileType {
     type_from_std_type(meta.file_type())
 }
 
+// Extract permissions from a given u32 mode
+//
+// 3 bits for Special bits
+// 3 bits for Root permissions
+// 3 bits for Group permissions
+// 3 bits for Other/World permissions
+// All bits before this may be discarded
+const PERMISSION_MASK: u32 = 0o7777;
+pub const fn mask_permission_mode(mode: u32) -> u16 {
+    (mode & PERMISSION_MASK) as u16
+}
+
 pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
     let crtime = metadata.created().unwrap_or_else(|_| {
         sec_nsec_to_systime(metadata.mtime(), metadata.mtime_nsec())
@@ -41,7 +53,7 @@ pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
         ctime: sec_nsec_to_systime(metadata.ctime(), metadata.ctime_nsec()),
         crtime,
         kind: resolve_meta_kind(metadata),
-        perm: (metadata.mode() & 0o7777) as u16,
+        perm: mask_permission_mode(metadata.mode()),
         nlink: metadata.nlink() as u32,
         uid: metadata.uid(),
         gid: metadata.gid(),

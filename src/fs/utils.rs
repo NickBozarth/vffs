@@ -3,6 +3,7 @@ use std::{ffi::OsString, fs::{FileType as StdFileType, Metadata}, io, os::unix::
 use fuser::{FileAttr, FileType, INodeNo, TimeOrNow};
 
 pub fn sec_nsec_to_systime(secs: i64, nsec: i64) -> SystemTime {
+    let nsec = nsec.clamp(0, 999_999_999) as u32;
     let nsec_dur = Duration::new(0, nsec as u32);
     if secs >= 0 {
         UNIX_EPOCH + Duration::from_secs(secs as u64) + nsec_dur

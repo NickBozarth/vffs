@@ -82,17 +82,15 @@ impl Mapper {
         };
 
         if ino == ROOT {
-            Ok(ROOT)
+            Err(MapperError::INodeNoFetchError)
         } else {
-            let parent_ino = path.parent()
+            path.parent()
                 .and_then(|p| {
                     self.table_read()
                         .ok()?
                         .by_path(p)
                 })
-                .unwrap_or(ROOT);
-
-            Ok(parent_ino)
+                .ok_or(MapperError::INodeNoFetchError)
         }
     }
 

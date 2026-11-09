@@ -9,6 +9,8 @@ pub enum MapperError {
     FileNotFound,
     #[error("Invalid flags provided")]
     InvalidFlags,
+    #[error("INodeNo not found")]
+    INodeNoFetchError,
     #[error("Io error: {0}")]
     Io(std::io::Error),
     #[error("Error when interfacing with HandleManager: {0}")]
@@ -37,6 +39,7 @@ impl MapperError {
     pub fn errno(&self) -> Errno {
         match self {
             Self::InvalidFlags => Errno::EINVAL,
+            Self::INodeNoFetchError => Errno::ENOENT,
             Self::UnregisteredINodeNo
             | Self::FileNotFound => Errno::EBADF,
             Self::PoisonError => Errno::EIO,

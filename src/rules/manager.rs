@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::{self, OpenOptions}, io::Write, path::{Path, PathBuf}};
 
-use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
+use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackError, CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
 
 pub struct RuleManager {
     rule_filepath: PathBuf,
@@ -146,8 +146,7 @@ impl RuleManager {
         cond_callbacks: &HashMap<String, ConditionCallback<CT>>,
         ctx: &mut Context<CT>,
         rule_type: RuleType
-    ) -> CallbackResult<()>
-    {
+    ) -> Vec<CallbackError> {
         // Find all rules that match given conditions
         // Convert these into a vec of pairs of rule_name, modification (String, &Modification)
         let mods: Vec<_> = self.find_matching_rules(
@@ -162,29 +161,26 @@ impl RuleManager {
             })
             .collect();
 
-        for (r, m) in mods {
-            let gen_fn_opt = action_callbacks.get(&m.0.fn_name);
-            let Some(gen_fn) = gen_fn_opt else {
-                return Err(ModError::CallbackNotFound.into_cb_error(
-                    r.to_string(),
-                    m.0.fn_name.to_string()
-                ));
+        let mut errors = Vec::new();
+        for (rule_name, m) in mods {
+            let fn_name = &m.0.fn_name;
+            let res = match action_callbacks.get(fn_name) {
+                Some(cb) => cb(m.0.args.clone(), ctx),
+                None => Err(ModError::CallbackNotFound)
             };
 
-            gen_fn(m.0.args.clone(), ctx)
-                .map_err(|e| e.into_cb_error(
-                    r.to_string(),
-                    m.0.fn_name.to_string()
-                ))?;
+            if let Err(e) = res {
+                errors.push(e.into_cb_error(rule_name.clone(), fn_name.clone()));
+            }
         }
 
-        Ok(())
+        errors
     }
 
-    pub fn call_preaction(
+    pub fn call_preactions(
         &self,
         ctx: &mut Context<CtxPreAction>
-    ) -> CallbackResult<()> {
+    ) -> Vec<CallbackError> {
         self.call_callbacks(
             &self.preactions,
             &self.preconditions,
@@ -196,7 +192,7 @@ impl RuleManager {
     pub fn call_postactions(
         &self,
         ctx: &mut Context<CtxPostAction>
-    ) -> CallbackResult<()> {
+    ) -> Vec<CallbackError> {
         self.call_callbacks(
             &self.postactions,
             &self.postconditions,

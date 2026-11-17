@@ -12,12 +12,17 @@ pub struct FaultInjectionFileSystem {
 }
 
 impl FaultInjectionFileSystem {
-    pub fn new<P: AsRef<Path>>(
-        source_dir: P,
-        mountpoint: P,
-        rules: P,
+    pub fn new<S, M, R>(
+        source_dir: S,
+        mountpoint: M,
+        rules: R,
         timeout: Duration
-    ) -> RuleManagerResult<Self> {
+    ) -> RuleManagerResult<Self>
+    where
+        S: AsRef<Path>,
+        M: AsRef<Path>,
+        R: AsRef<Path>
+    {
         Ok(Self {
             mountpoint: mountpoint.as_ref().to_path_buf(),
             ttl: timeout,
@@ -27,6 +32,8 @@ impl FaultInjectionFileSystem {
     }
 
     pub fn spawn_mount(self) -> io::Result<BackgroundSession> {
+        // TODO validate rules ... self.rule_manager.validate_callbacks
+
         let mut options = Config::default();
         options.mount_options.extend_from_slice(&[
             fuser::MountOption::RW,
@@ -45,7 +52,7 @@ impl FaultInjectionFileSystem {
         let action_type = action_ctx.action_type();
         let mut ctx = action_ctx.into_ctx();
 
-        if let Err(e) = self.rule_manager.call_preaction(&mut ctx) {
+        for e in self.rule_manager.call_preactions(&mut ctx) {
             eprintln!("{action_type:?} post-action callback failed: {e}");
         }
 
@@ -58,7 +65,7 @@ impl FaultInjectionFileSystem {
         };
         let mut ctx = ctx.attach_reply(reply);
 
-        if let Err(e) = self.rule_manager.call_postactions(&mut ctx) {
+        for e in self.rule_manager.call_postactions(&mut ctx) {
             eprintln!("{action_type:?} post-action callback failed: {e}");
         }
 

@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fs::{self, OpenOptions}, io::Write, path::{Path, PathBuf}};
 
+use indexmap::IndexMap;
+
 use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackError, CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
 
 pub struct RuleManager {
@@ -85,7 +87,7 @@ impl RuleManager {
             ]
         };
 
-        let mut rule_map = HashMap::new();
+        let mut rule_map = IndexMap::new();
         rule_map.insert("Make Readdir take 50% longer".to_string(), wait_50_pct);
 
         PreparseRules(rule_map)

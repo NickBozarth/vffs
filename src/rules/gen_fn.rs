@@ -23,13 +23,10 @@ macro_rules! define_mod_arg {
             impl TryFrom<GenArg> for $ty {
                 type Error = GenArgParseError;
 
-                fn try_from(mod_arg: GenArg) -> Result<Self, Self::Error> {
-                    if let GenArg::$variant(arg) = mod_arg {
-                        Ok(arg)
-                    } else if mod_arg == GenArg::Void {
-                        Err(GenArgParseError::VoidParseError)
-                    } else {
-                        Err(GenArgParseError::VariantMismatch(mod_arg, stringify!( $ty )))
+                fn try_from(arg: GenArg) -> Result<Self, Self::Error> {
+                    match arg {
+                        GenArg::$variant(v) => Ok(v),
+                        other => Err(GenArgParseError::VariantMismatch(other, stringify!( $ty )))
                     }
                 }
             }
@@ -38,21 +35,9 @@ macro_rules! define_mod_arg {
             impl TryFrom<GenArgs> for $ty {
                 type Error = GenArgParseError;
 
-                fn try_from(mod_args: GenArgs) -> Result<Self, Self::Error> {
-                    if mod_args.arg1 != GenArg::Void
-                    || mod_args.arg2 != GenArg::Void
-                    || mod_args.arg3 != GenArg::Void
-                    || mod_args.arg4 != GenArg::Void
-                    || mod_args.arg5 != GenArg::Void
-                    || mod_args.arg6 != GenArg::Void
-                    || mod_args.arg7 != GenArg::Void
-                    || mod_args.arg8 != GenArg::Void
-                    || mod_args.arg9 != GenArg::Void
-                    {
-                        Err(GenArgParseError::VoidParseError)
-                    } else {
-                        mod_args.arg0.try_into()
-                    }
+                fn try_from(args: GenArgs) -> Result<Self, Self::Error> {
+                    let (arg,) = args.try_into()?;
+                    Ok(arg)
                 }
             }
         )*
@@ -82,117 +67,40 @@ define_mod_arg!(
 );
 
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-#[serde(default)]
-pub struct GenArgs {
-    pub arg0: GenArg,
-    pub arg1: GenArg,
-    pub arg2: GenArg,
-    pub arg3: GenArg,
-    pub arg4: GenArg,
-    pub arg5: GenArg,
-    pub arg6: GenArg,
-    pub arg7: GenArg,
-    pub arg8: GenArg,
-    pub arg9: GenArg,
-}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GenArgs(pub Vec<GenArg>);
 
-type GenArgsTuple = (GenArg, GenArg, GenArg, GenArg, GenArg, GenArg, GenArg, GenArg, GenArg, GenArg);
-impl From<GenArgsTuple> for GenArgs {
-    fn from(value: GenArgsTuple) -> Self {
-        let (
-            arg0, arg1, arg2, arg3, arg4,
-            arg5, arg6, arg7, arg8, arg9
-        ) = value;
 
-        Self { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 }
+// Implement TryFrom<GenArgs> for tuples where all elements implement TryFrom<GenArg>.
+// The argument count must match the tuple arity exactly.
+macro_rules! try_from_gen_args {
+    ($len:literal: $( $generic:ident ),+) => {
+        impl< $( $generic ),* > TryFrom<GenArgs> for ( $( $generic, )* )
+        where
+            $( $generic : TryFrom<GenArg, Error = GenArgParseError> ),*
+        {
+            type Error = GenArgParseError;
+            fn try_from(args: GenArgs) -> Result<Self, Self::Error> {
+                if args.0.len() != $len {
+                    return Err(GenArgParseError::LengthMismatch(args.0.len(), $len));
+                }
+
+                let mut it = args.0.into_iter();
+                Ok((
+                    $( <$generic>::try_from(it.next().unwrap())?, )*
+                ))
+            }
+        }
     }
 }
 
-
-// Implement TryFrom<GenArg> for tuples where all elements implement TryFrom<ModArg>
-// used: a list of generics and their mapping to what fielt they correspond to
-// unused: a list of fields that will be checked to ensure that incorrectly sized GenArgs do
-//         not parse to valid tuple
-macro_rules! try_from_mod_args {
-    (
-        used: [ $( $generic:ident => $field:ident ),+],
-        unused: [$( $unused:ident ),*]
-    ) =>{
-        impl<$( $generic, )+> TryFrom<GenArgs> for ($( $generic, )+)
-        where
-            $( $generic: TryFrom<GenArg, Error = GenArgParseError>, )+
-        {
-            type Error = GenArgParseError;
-            fn try_from(mod_args: GenArgs) -> Result<Self, Self::Error> {
-                if false
-                $( || mod_args.$unused != GenArg::Void )*
-                {
-                    return Err(GenArgParseError::VoidParseError);
-                }
-
-                Ok((
-                    $( mod_args.$field.try_into()?, )+
-                ))
-            }
-
-        }
-    };
-}
-
-try_from_mod_args!(
-    used: [A => arg0, B => arg1],
-    unused: [arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [A => arg0, B => arg1, C => arg2],
-    unused: [arg3, arg4, arg5, arg6, arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [A => arg0, B => arg1, C => arg2, D => arg3],
-    unused: [arg4, arg5, arg6, arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [A => arg0, B => arg1, C => arg2, D => arg3, E => arg4],
-    unused: [arg5, arg6, arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [A => arg0, B => arg1, C => arg2, D => arg3, E => arg4, F => arg5],
-    unused: [arg6, arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [
-        A => arg0, B => arg1, C => arg2, D => arg3, E => arg4, F => arg5,
-        G => arg6
-    ],
-    unused: [arg7, arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [
-        A => arg0, B => arg1, C => arg2, D => arg3, E => arg4, F => arg5,
-        G => arg6, H => arg7
-    ],
-    unused: [arg8, arg9]
-);
-
-try_from_mod_args!(
-    used: [
-        A => arg0, B => arg1, C => arg2, D => arg3, E => arg4, F => arg5,
-        G => arg6, H => arg7, I => arg8
-    ],
-    unused: [arg9]
-);
-
-try_from_mod_args!(
-    used: [
-        A => arg0, B => arg1, C => arg2, D => arg3, E => arg4, F => arg5,
-        G => arg6, H => arg7, I => arg8, J => arg9
-    ],
-    unused: []
-);
+try_from_gen_args!(1:  A);
+try_from_gen_args!(2:  A, B);
+try_from_gen_args!(3:  A, B, C);
+try_from_gen_args!(4:  A, B, C, D);
+try_from_gen_args!(5:  A, B, C, D, E);
+try_from_gen_args!(6:  A, B, C, D, E, F);
+try_from_gen_args!(7:  A, B, C, D, E, F, G);
+try_from_gen_args!(8:  A, B, C, D, E, F, G, H);
+try_from_gen_args!(9:  A, B, C, D, E, F, G, H, I);
+try_from_gen_args!(10: A, B, C, D, E, F, G, H, I, J);

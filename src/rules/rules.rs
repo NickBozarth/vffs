@@ -1,8 +1,9 @@
 use std::{collections::HashMap, fmt::Display};
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{context::{ConditionCallback, Context}, errors::ModError, gen_fn::{GenArg, GenFn}};
+use crate::rules::{context::{ConditionCallback, Context}, errors::ModError, gen_fn::{GenArg, GenArgs, GenFn}};
 
 
 
@@ -51,7 +52,7 @@ impl Display for ActionType {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[repr(transparent)]
-pub struct PreparseRules(pub HashMap<String, PreparseRule>);
+pub struct PreparseRules(pub IndexMap<String, PreparseRule>);
 
 impl PreparseRules {
     pub fn parse(self) -> Vec<Rule> {
@@ -112,7 +113,7 @@ impl PreparseRule {
 //      arm_variant_prefix,
 //
 //      $(
-//          variant( $( args )* ) => fn_name ( $( arg_type, arg_name ),* )
+//          variant( $( args )* ) => fn_name ( $( arg_type arg_name ),* )
 //      )*
 // }
 //
@@ -122,14 +123,16 @@ impl PreparseRule {
 //      self,
 //      Self,
 //
-//      WaitPct(pct) => wait_pct(F32 pct)
+//      WaitPct(pct) => wait_pct(F32 pct, Bool false)
 // }
 //
-// Which will parse to
+// Which will parse to the same as
 // GenFn {
 //      fn_name: "wait_pct".to_string(),
 //      args: GenArgs {
-//
+//          arg0: GenArg::F32(pct),
+//          arg1: GenArg::Bool(false),
+//          ..Default::default()
 //      }
 // }
 macro_rules! parse_to_gen_fn {
@@ -149,48 +152,23 @@ macro_rules! parse_to_gen_fn {
             // argument type must correspond to a GenArg variant (Bool, U8, String, ActionType, ...)
             // ex: match_action(ActionType ty)
             //     wait_pct(F32 pct, Bool false)
-            $fn_name:ident ( $( $arg_type:ident $arg_name:expr ),* )
+            $fn_name:ident ( $( $arg_type:ident $arg_expr:expr ),* )
         ),*
         // Optional comma delimiter at the end
         $(,)?
     ) => {
         match $match_on {
             $(
-                $arm_variant_prefix::$variant $( ( $( $item ),* ) )? => { 
+                $arm_variant_prefix::$variant $( ( $( $item ),* ) )? => {
                     GenFn {
                         fn_name: stringify!( $fn_name ).to_string(),
-                        args: parse_to_gen_fn! { @gen_args $( $arg_type $arg_name ),* }.into()
+                        args: GenArgs(vec![ $( GenArg::$arg_type ( $arg_expr ) ),* ])
                     }
                 },
             )*
 
             $arm_variant_prefix::Fn(gen_fn) => gen_fn
         }
-    };
-
-    (@gen_args $( $arg_type:ident $arg_expr:expr ),*) => {
-        // Take all args and parse them
-        // Add 10 GenArg::Void onto the end of args
-        // Truncate args to 10 args
-        parse_to_gen_fn! {
-            @truncate10
-            $( GenArg::$arg_type( $arg_expr ), )*
-            GenArg::Void, GenArg::Void, GenArg::Void, GenArg::Void, GenArg::Void, 
-            GenArg::Void, GenArg::Void, GenArg::Void, GenArg::Void, GenArg::Void
-        }
-    };
-
-    // Truncate macro call of at least 10 to 10 args
-    (
-        @truncate10
-        $arg0:expr, $arg1:expr, $arg2:expr, $arg3:expr, $arg4:expr,
-        $arg5:expr, $arg6:expr, $arg7:expr, $arg8:expr, $arg9:expr,
-        $( $_ignored_args:expr ),*
-    ) => {
-        (
-            $arg0, $arg1, $arg2, $arg3, $arg4,
-            $arg5, $arg6, $arg7, $arg8, $arg9
-        )
     };
 }
 

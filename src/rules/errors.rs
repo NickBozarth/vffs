@@ -20,8 +20,8 @@ pub type RuleManagerResult<T> = Result<T, RuleManagerError>;
 pub enum GenArgParseError {
     #[error("Could not parse GenArg [requested({1}) : found GenArg::{0:?}]")]
     VariantMismatch(GenArg, &'static str),
-    #[error("Attempted to parse a GenArg::Void")]
-    VoidParseError,
+    #[error("Attempted to parse to wrong len [found {0}, expected {1}]")]
+    LengthMismatch(usize, usize),
 }
 
 #[derive(Debug, Error)]

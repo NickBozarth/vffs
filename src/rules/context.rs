@@ -3,7 +3,17 @@ use std::{ffi::OsString, marker::PhantomData, time::{Duration, SystemTime}};
 use clap::builder::OsStr;
 use fuser::{BsdFileFlags, Errno, FileAttr, FileHandle, FileType, INodeNo, LockOwner, OpenFlags, Request, TimeOrNow, WriteFlags};
 
-use crate::rules::rules::ActionType;
+use crate::rules::{errors::ModResult, gen_fn::GenArgs, rules::ActionType};
+
+
+pub type ActionCallback<T> = fn(GenArgs, &mut Context<T>) -> ModResult<()>;
+pub type PreactionCallback = ActionCallback<CtxPreAction>;
+pub type PostactionCallback = ActionCallback<CtxPostAction>;
+
+pub type ConditionCallback<T> = fn(GenArgs, &Context<T>) -> bool;
+pub type PreconditionCallback = ConditionCallback<CtxPreAction>;
+pub type PostconditionCallback = ConditionCallback<CtxPostAction>;
+
 
 pub enum ActionCtx<'a> {
     Lookup {

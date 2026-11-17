@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
-use crate::rules::gen_fn::{GenArg, GenFn};
+use crate::rules::{context::{ConditionCallback, Context}, errors::ModError, gen_fn::{GenArg, GenFn}};
 
 
 
@@ -14,10 +14,8 @@ pub enum RuleType {
 }
 
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum MatchType {
-    #[default]
-    Inactive,
     MatchAll,
     MatchOne,
     DenyMatchAll,
@@ -42,6 +40,11 @@ pub enum ActionType {
     Fsync,
 }
 
+impl Display for ActionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ActionType({self:?})")
+    }
+}
 
 
 
@@ -250,6 +253,46 @@ pub struct Rule {
     pub conditions: Vec<Condition>,
     pub modifications: Vec<Modification>
 }
+
+impl Rule {
+    pub fn conditions_match<CT>(
+        &self,
+        cond_callbacks: &HashMap<String, ConditionCallback<CT>>,
+        ctx: &Context<CT>
+    ) -> bool {
+        if self.inactive {
+            return false;
+        }
+
+        let mut condition_check = self.conditions
+            .iter()
+            .filter_map(|c| {
+                match cond_callbacks.get(&c.0.fn_name) {
+                    Some(cb) => {
+                        let res = cb(c.0.args.clone(), ctx);
+                        Some(res)
+                    },
+                    None => {
+                        let err = ModError::CallbackNotFound.into_cb_error(
+                            self.name.clone(),
+                            c.0.fn_name.clone()
+                        );
+
+                        eprintln!("{err}");
+                        None
+                    }
+                }
+            });
+
+        match self.condition_match_type {
+            MatchType::MatchAll => { condition_check.all(|b| b) }
+            MatchType::MatchOne => { condition_check.any(|b| b) }
+            MatchType::DenyMatchAll => { !condition_check.all(|b| b) }
+            MatchType::DenyMatchOne => { !condition_check.any(|b| b) }
+        }
+    }
+}
+
 
 pub struct Condition(pub GenFn);
 

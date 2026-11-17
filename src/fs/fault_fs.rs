@@ -1,22 +1,29 @@
 use std::{ffi::OsStr, io, path::{Path, PathBuf}, time::{Duration, SystemTime}};
 
-use fuser::{BackgroundSession, BsdFileFlags, Config, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
+use fuser::{BackgroundSession, BsdFileFlags, Config, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
 
-use crate::fs::{mapper::{Mapper, SetAttrArgs}};
+use crate::{fs::{errors::MapperResult, mapper::{Mapper, SetAttrArgs}}, rules::{context::{ActionCtx, Reply}, errors::RuleManagerResult, manager::RuleManager}};
 
 pub struct FaultInjectionFileSystem {
     mountpoint: PathBuf,
     ttl: Duration,
-    fs_mapper: Mapper
+    fs_mapper: Mapper,
+    rule_manager: RuleManager
 }
 
 impl FaultInjectionFileSystem {
-    pub fn new<P: AsRef<Path>>(source_dir: P, mountpoint: P, timeout: Duration) -> Self {
-        Self {
+    pub fn new<P: AsRef<Path>>(
+        source_dir: P,
+        mountpoint: P,
+        rules: P,
+        timeout: Duration
+    ) -> RuleManagerResult<Self> {
+        Ok(Self {
             mountpoint: mountpoint.as_ref().to_path_buf(),
             ttl: timeout,
-            fs_mapper: Mapper::new(source_dir.as_ref())
-        }
+            fs_mapper: Mapper::new(source_dir.as_ref()),
+            rule_manager: RuleManager::new(rules.as_ref())?
+        })
     }
 
     pub fn spawn_mount(self) -> io::Result<BackgroundSession> {
@@ -28,18 +35,51 @@ impl FaultInjectionFileSystem {
         let mountpoint = self.mountpoint.clone();
         fuser::spawn_mount(self, &mountpoint, &options)
     }
+
+    fn act_with_rules<T>(
+        &self,
+        action_ctx: ActionCtx,
+        action: impl FnOnce() -> MapperResult<T>,
+        reply_constructor: impl FnOnce(&mut T) -> Reply
+    ) -> Result<T, Errno> {
+        let action_type = action_ctx.action_type();
+        let mut ctx = action_ctx.into_ctx();
+
+        if let Err(e) = self.rule_manager.call_preaction(&mut ctx) {
+            eprintln!("{action_type:?} post-action callback failed: {e}");
+        }
+
+        let mut res = action()
+            .map_err(|e| e.errno());
+
+        let reply = match &mut res {
+            Ok(r) => reply_constructor(r),
+            Err(e) => Reply::Err(e)
+        };
+        let mut ctx = ctx.attach_reply(reply);
+
+        if let Err(e) = self.rule_manager.call_postactions(&mut ctx) {
+            eprintln!("{action_type:?} post-action callback failed: {e}");
+        }
+
+        res
+    }
 }
 
 impl Filesystem for FaultInjectionFileSystem {
     fn lookup(&self,
-        _req: &Request,
+        req: &Request,
         parent: INodeNo,
         name: &OsStr,
         reply: ReplyEntry
     ) {
-        match self.fs_mapper.lookup_attr(parent, name) {
+        match self.act_with_rules(
+            ActionCtx::Lookup { req, parent, name },
+            || self.fs_mapper.lookup_attr(parent, name),
+            |r| Reply::Lookup(r)
+        ) {
             Ok(attr) => reply.entry(&self.ttl, &attr, Generation(0)),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e),
         }
     }
 
@@ -49,20 +89,24 @@ impl Filesystem for FaultInjectionFileSystem {
 
     fn getattr(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         fh: Option<FileHandle>,
         reply: ReplyAttr
     ) {
-        match self.fs_mapper.getattr(ino, fh) {
+        match self.act_with_rules(
+            ActionCtx::Getattr { req, ino, fh },
+            || self.fs_mapper.getattr(ino, fh),
+            |r| Reply::Getattr(r)
+        ) {
             Ok(attr) => reply.attr(&self.ttl, &attr),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e),
         }
     }
 
     fn setattr(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         mode: Option<u32>,
         uid: Option<u32>,
@@ -70,32 +114,44 @@ impl Filesystem for FaultInjectionFileSystem {
         size: Option<u64>,
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
-        _ctime: Option<SystemTime>,
+        ctime: Option<SystemTime>,
         fh: Option<FileHandle>,
-        _crtime: Option<SystemTime>,
-        _chgtime: Option<SystemTime>,
-        _bkuptime: Option<SystemTime>,
-        _flags: Option<BsdFileFlags>,
+        crtime: Option<SystemTime>,
+        chgtime: Option<SystemTime>,
+        bkuptime: Option<SystemTime>,
+        flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     )
     {
         let args = SetAttrArgs { mode, uid, gid, size, atime, mtime, fh };
-        match self.fs_mapper.setattr(ino, args) {
+
+        match self.act_with_rules(
+            ActionCtx::Setattr {
+                req, ino, mode, uid, gid, size, atime, mtime,
+                ctime, fh, crtime, chgtime, bkuptime, flags
+            },
+            || self.fs_mapper.setattr(ino, args),
+            |r| Reply::Setattr(r)
+        ) {
             Ok(attr) => reply.attr(&self.ttl, &attr),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e),
         }
     }
 
     fn readdir(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
-        _fh: FileHandle,
+        fh: FileHandle,
         offset: u64,
         mut reply: ReplyDirectory,
     )
     {
-        match self.fs_mapper.list_dir(ino) {
+        match self.act_with_rules(
+            ActionCtx::Readdir { req, ino, fh, offset },
+            || self.fs_mapper.list_dir(ino),
+            |r| Reply::Readdir(r)
+        ) {
             Ok(entries) => {
                 let entries_iter = entries
                     .into_iter()
@@ -109,89 +165,112 @@ impl Filesystem for FaultInjectionFileSystem {
 
                 reply.ok();
             }
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e)
         }
     }
 
     fn open(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         flags: OpenFlags,
         reply: ReplyOpen
     ) {
-        match self.fs_mapper.open(ino, flags) {
+        match self.act_with_rules(
+            ActionCtx::Open { req, ino, flags },
+            || self.fs_mapper.open(ino, flags),
+            |r| Reply::Open(r)
+        ) {
             Ok(fh) => reply.opened(fh, FopenFlags::empty()),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e)
         }
     }
 
     fn read(
         &self,
-        _req: &Request,
-        _ino: INodeNo,
+        req: &Request,
+        ino: INodeNo,
         fh: FileHandle,
         offset: u64,
         size: u32,
-        _flags: OpenFlags,
-        _lock_owner: Option<LockOwner>,
+        flags: OpenFlags,
+        lock_owner: Option<LockOwner>,
         reply: ReplyData,
     )
     {
-        match self.fs_mapper.read(fh, offset, size) {
+        match self.act_with_rules(
+            ActionCtx::Read { req, ino, fh, offset, size, flags, lock_owner },
+            || self.fs_mapper.read(fh, offset, size),
+            |r| Reply::Read(r)
+        ) {
             Ok(data) => reply.data(&data),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e),
         }
     }
 
     fn write(
         &self,
-        _req: &Request,
-        _ino: INodeNo,
+        req: &Request,
+        ino: INodeNo,
         fh: FileHandle,
         offset: u64,
         data: &[u8],
-        _write_flags: fuser::WriteFlags,
-        _flags: OpenFlags,
-        _lock_owner: Option<fuser::LockOwner>,
+        write_flags: fuser::WriteFlags,
+        flags: OpenFlags,
+        lock_owner: Option<fuser::LockOwner>,
         reply: fuser::ReplyWrite,
     )
     {
-        match self.fs_mapper.write(fh, offset, data) {
+        match self.act_with_rules(
+            ActionCtx::Write { 
+                req, ino, fh, offset, data,
+                write_flags, flags, lock_owner
+            },
+            || self.fs_mapper.write(fh, offset, data),
+            |r| Reply::Write(r)
+        ) {
             Ok(n) => reply.written(n),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e),
         }
     }
 
     fn release(
         &self,
-        _req: &Request,
-        _ino: INodeNo,
+        req: &Request,
+        ino: INodeNo,
         fh: FileHandle,
-        _flags: OpenFlags,
-        _lock_owner: Option<fuser::LockOwner>,
-        _flush: bool,
+        flags: OpenFlags,
+        lock_owner: Option<fuser::LockOwner>,
+        flush: bool,
         reply: fuser::ReplyEmpty,
     )
     {
-        match self.fs_mapper.release(fh) {
+        match self.act_with_rules(
+            ActionCtx::Release { req, ino, fh, flags, lock_owner, flush },
+            || self.fs_mapper.release(fh),
+            |_| Reply::Release
+        ) {
             Ok(()) => reply.ok(),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e)
         }
     }
 
     fn fsync(
         &self,
-        _req: &Request,
-        _ino: INodeNo,
+        req: &Request,
+        ino: INodeNo,
         fh: FileHandle,
         datasync: bool,
         reply: ReplyEmpty,
     )
     {
-        match self.fs_mapper.fsync(fh, datasync) {
+        match self.act_with_rules(
+            ActionCtx::Fsync { req, ino, fh, datasync },
+            || self.fs_mapper.fsync(fh, datasync),
+            |_| Reply::Fsync
+        ) {
             Ok(()) => reply.ok(),
-            Err(err) => reply.error(err.errno()),
+            Err(e) => reply.error(e)
         }
     }
 }

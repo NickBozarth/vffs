@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fs::{self, OpenOptions}, io::Write, path::{Path, PathBuf}};
 
-use crate::rules::{context::{ActionCallback, ConditionCallback, Context, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
+use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
 
-struct RuleManager {
+pub struct RuleManager {
     rule_filepath: PathBuf,
     rules: Vec<Rule>,
 
@@ -179,5 +179,29 @@ impl RuleManager {
         }
 
         Ok(())
+    }
+
+    pub fn call_preaction(
+        &self,
+        ctx: &mut Context<CtxPreAction>
+    ) -> CallbackResult<()> {
+        self.call_callbacks(
+            &self.preactions,
+            &self.preconditions,
+            ctx,
+            RuleType::PreAction
+        )
+    }
+
+    pub fn call_postactions(
+        &self,
+        ctx: &mut Context<CtxPostAction>
+    ) -> CallbackResult<()> {
+        self.call_callbacks(
+            &self.postactions,
+            &self.postconditions,
+            ctx,
+            RuleType::PostAction
+        )
     }
 }

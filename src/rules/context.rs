@@ -1,6 +1,5 @@
-use std::{ffi::OsString, marker::PhantomData, time::{Duration, SystemTime}};
+use std::{ffi::{OsStr, OsString}, marker::PhantomData, time::{Duration, SystemTime}};
 
-use clap::builder::OsStr;
 use fuser::{BsdFileFlags, Errno, FileAttr, FileHandle, FileType, INodeNo, LockOwner, OpenFlags, Request, TimeOrNow, WriteFlags};
 
 use crate::rules::{errors::ModResult, gen_fn::GenArgs, rules::ActionType};

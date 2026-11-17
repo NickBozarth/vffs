@@ -50,13 +50,12 @@ impl Display for ActionType {
 
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PreparseRules {
-    pub rule_map: HashMap<String, PreparseRule>
-}
+#[repr(transparent)]
+pub struct PreparseRules(pub HashMap<String, PreparseRule>);
 
 impl PreparseRules {
     pub fn parse(self) -> Vec<Rule> {
-        self.rule_map
+        self.0
             .into_iter()
             .map(|(name, ppr)| ppr.parse(name))
             .collect()
@@ -270,19 +269,30 @@ impl Rule {
                 match cond_callbacks.get(&c.0.fn_name) {
                     Some(cb) => {
                         let res = cb(c.0.args.clone(), ctx);
-                        Some(res)
+                        match res {
+                            Ok(status) => Some(status),
+                            Err(e) => {
+                                eprint!("{e}");
+                                None
+                            }
+                        }
                     },
                     None => {
-                        let err = ModError::CallbackNotFound.into_cb_error(
+                        let e = ModError::CallbackNotFound.into_cb_error(
                             self.name.clone(),
                             c.0.fn_name.clone()
                         );
 
-                        eprintln!("{err}");
+                        eprintln!("{e}");
                         None
                     }
                 }
-            });
+            })
+            .peekable();
+
+        if condition_check.peek().is_none() {
+            return false;
+        }
 
         match self.condition_match_type {
             MatchType::MatchAll => { condition_check.all(|b| b) }

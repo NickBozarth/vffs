@@ -9,7 +9,7 @@ pub type ActionCallback<T> = fn(GenArgs, &mut Context<T>) -> ModResult<()>;
 pub type PreactionCallback = ActionCallback<CtxPreAction>;
 pub type PostactionCallback = ActionCallback<CtxPostAction>;
 
-pub type ConditionCallback<T> = fn(GenArgs, &Context<T>) -> bool;
+pub type ConditionCallback<T> = fn(GenArgs, &Context<T>) -> ModResult<bool>;
 pub type PreconditionCallback = ConditionCallback<CtxPreAction>;
 pub type PostconditionCallback = ConditionCallback<CtxPostAction>;
 

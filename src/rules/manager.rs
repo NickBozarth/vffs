@@ -20,7 +20,7 @@ impl RuleManager {
             && !dir.is_dir()
             {
                 fs::create_dir_all(dir)
-                    .map_err(RuleManagerError::Io)?;
+                    .map_err(RuleManagerError::WriteError)?;
             }
 
             fs::File::create_new(&rule_filepath)
@@ -30,7 +30,7 @@ impl RuleManager {
                         .map_err(RuleManagerError::YamlParseError)?;
 
                     f.write(yaml_string.as_bytes())
-                        .map_err(RuleManagerError::Io)
+                        .map_err(RuleManagerError::WriteError)
                 })?;
 
             println!("Created new rules file at {:?}", rule_filepath.as_ref());
@@ -86,9 +86,9 @@ impl RuleManager {
         };
 
         let mut rule_map = HashMap::new();
-        rule_map.insert("Make actions 50% longer".to_string(), wait_50_pct);
+        rule_map.insert("Make Readdir take 50% longer".to_string(), wait_50_pct);
 
-        PreparseRules { rule_map }
+        PreparseRules(rule_map)
     }
 
 

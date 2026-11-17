@@ -54,8 +54,8 @@ impl Args {
                 let mut home_dir = home::home_dir()
                     .ok_or(ArgParseError::RuleConstructError)?;
 
-                home_dir.push("/.config");
-                home_dir.push("/vffs");
+                home_dir.push(".config");
+                home_dir.push("vffs");
                 home_dir.push(source_basename);
                 home_dir.push(out_basename);
                 home_dir.set_extension("yaml");

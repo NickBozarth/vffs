@@ -2,7 +2,7 @@ use std::{ffi::OsStr, io, path::{Path, PathBuf}, time::{Duration, SystemTime}};
 
 use fuser::{BackgroundSession, BsdFileFlags, Config, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
 
-use crate::{fs::{errors::MapperResult, mapper::{Mapper, SetAttrArgs}}, rules::{context::{ActionCtx, Reply}, errors::RuleManagerResult, manager::RuleManager}};
+use crate::{fs::{errors::MapperResult, mapper::{Mapper, SetAttrArgs}}, rules::{context::{ActionCtx, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback, Reply}, errors::RuleManagerResult, manager::RuleManager}};
 
 pub struct FaultInjectionFileSystem {
     mountpoint: PathBuf,
@@ -63,6 +63,43 @@ impl FaultInjectionFileSystem {
         }
 
         res
+    }
+
+
+    pub fn with_precondition(
+        mut self,
+        cb_name: &str,
+        cb: PreconditionCallback
+    ) -> Self {
+        self.rule_manager.add_precondition(cb_name, cb);
+        self
+    }
+
+    pub fn with_postcondition(
+        mut self,
+        cb_name: &str,
+        cb: PostconditionCallback
+    ) -> Self {
+        self.rule_manager.add_postcondition(cb_name, cb);
+        self
+    }
+
+    pub fn with_preaction(
+        mut self,
+        cb_name: &str,
+        cb: PreactionCallback
+    ) -> Self {
+        self.rule_manager.add_preaction(cb_name, cb);
+        self
+    }
+
+    pub fn with_postaction(
+        mut self,
+        cb_name: &str,
+        cb: PostactionCallback
+    ) -> Self {
+        self.rule_manager.add_postaction(cb_name, cb);
+        self
     }
 }
 

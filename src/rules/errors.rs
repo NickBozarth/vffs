@@ -5,8 +5,10 @@ use crate::rules::{gen_fn::GenArg, rules::ActionType};
 
 #[derive(Debug, Error)]
 pub enum RuleManagerError {
-    #[error("Io Error {0}")]
+    #[error("Io Error: {0}")]
     Io(std::io::Error),
+    #[error("Error attempting to write: {0}")]
+    WriteError(std::io::Error),
     #[error("Error when parsing yaml")]
     YamlParseError(yaml_serde::Error),
 }

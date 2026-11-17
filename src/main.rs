@@ -6,6 +6,7 @@ use crate::fs::fault_fs::FaultInjectionFileSystem;
 
 mod fs;
 mod args;
+mod rules;
 
 fn main() {
     let args = args::Args::parse()

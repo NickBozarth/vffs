@@ -9,5 +9,6 @@ ctrlc = "3.5.2"
 fuser = "0.18.0"
 home = "0.5.12"
 libc = "0.2.191"
+serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27.0"
 thiserror = "2.0.21"

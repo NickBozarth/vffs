@@ -102,20 +102,51 @@ impl PreparseRule {
 }
 
 
+// Generalizes pattern to GenFn so that it can be procedurally called later
+//
+// Structured like
+// {
+//      match_on,
+//      arm_variant_prefix,
+//
+//      $(
+//          variant( $( args )* ) => fn_name ( $( arg_type, arg_name ),* )
+//      )*
+// }
+//
+//
+// When written out, it can look like
+// {
+//      self,
+//      Self,
+//
+//      WaitPct(pct) => wait_pct(F32 pct)
+// }
+//
+// Which will parse to
+// GenFn {
+//      fn_name: "wait_pct".to_string(),
+//      args: GenArgs {
+//
+//      }
+// }
 macro_rules! parse_to_gen_fn {
 
     (
-        // usually just self
+        // what is being matched on
         $match_on:expr,
+        // the type of what is being matched on
         $arm_variant_prefix:ident,
         $(
             // enum variant that is optionally a tuple enum type to accept args
-            // ex: Self::ActionType(ty)
+            // ex: ActionType(ty)
+            //     WaitPct(pct)
             $variant:ident $( ( $( $item:ident ),* ) )?
             =>
             // Capture name of function and arguments (preserving order declared here)
             // argument type must correspond to a GenArg variant (Bool, U8, String, ActionType, ...)
-            // ex: match_action(ty: ActionType)
+            // ex: match_action(ActionType ty)
+            //     wait_pct(F32 pct, Bool false)
             $fn_name:ident ( $( $arg_type:ident $arg_name:expr ),* )
         ),*
         // Optional comma delimiter at the end

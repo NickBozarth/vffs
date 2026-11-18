@@ -2,13 +2,9 @@ use std::{sync::mpsc, time::Duration};
 
 use clap::Parser;
 
-use crate::{fs::fault_fs::FaultInjectionFileSystem, rules::{context::{Context, CtxPostAction}, errors::{ModError, ModResult}, gen_fn::GenArgs, rules::ActionType}};
+use vffs::{fs::fault_fs::FaultInjectionFileSystem, rules::{context::{Context, CtxPostAction}, errors::{ModError, ModResult}, gen_fn::GenArgs, rules::ActionType}};
 
-mod fs;
 mod args;
-mod rules;
-
-
 
 fn wait_pct(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
     let (pct, debug) = args.try_into()?;
@@ -29,11 +25,16 @@ fn wait_pct(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
     Ok(())
 }
 
+fn 
 
 fn match_action(args: GenArgs, ctx: &Context<CtxPostAction>) -> ModResult<bool> {
-    ActionType::try_from(args)
-        .map(|act| act == ctx.action_type())
-        .map_err(ModError::from)
+    let act = ActionType::try_from(args)?;
+
+    Ok(match act {
+        ActionType::All => true,
+        ActionType::None => false,
+        act => act == ctx.action_type()
+    })
 }
 
 
@@ -54,10 +55,10 @@ fn main() {
         .with_postcondition("match_action", match_action)
         .with_postaction("wait_pct", wait_pct)
         .spawn_mount()
-        .expect("Failed to mount FUSE session. Make sure FUSE is installed");
+        .expect("Failed to mount FUSE session");
 
 
-    // Stop thread from completing until ctrlc is enountered
+    // Stop thread from completing until ctrlc is encountered
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || { let _ = tx.send(()); })
         .expect("Failed to setup ctrlc handler");

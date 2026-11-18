@@ -1,4 +1,4 @@
-use std::{ffi::{OsStr, OsString}, marker::PhantomData, time::{Duration, SystemTime}};
+use std::{ffi::{OsStr, OsString}, marker::PhantomData, time::{Duration, Instant, SystemTime}};
 
 use fuser::{BsdFileFlags, Errno, FileAttr, FileHandle, FileType, INodeNo, LockOwner, OpenFlags, Request, TimeOrNow, WriteFlags};
 
@@ -97,7 +97,7 @@ pub enum ActionCtx<'a> {
 impl<'a> ActionCtx<'a> {
     pub fn into_ctx(self) -> Context<'a, CtxPreAction> {
         Context {
-            pre_action_time: SystemTime::now(),
+            pre_action_time: Instant::now(),
             post_action_time: None,
 
             action_ctx: self,
@@ -214,8 +214,8 @@ pub struct CtxPostAction;
 // reply and post_action_time will always be None if this is a pre-action Context
 // reply and post_action_time will always be Some(_) if this is a post-action Context
 pub struct Context<'a, T> {
-    pre_action_time: SystemTime,
-    post_action_time: Option<SystemTime>,
+    pre_action_time: Instant,
+    post_action_time: Option<Instant>,
 
     action_ctx: ActionCtx<'a>,
     reply: Option<Reply<'a>>,
@@ -236,7 +236,7 @@ impl<'a> Context<'a, CtxPreAction> {
     pub fn attach_reply(self, reply: Reply<'a>) -> Context<'a, CtxPostAction> {
         Context {
             pre_action_time: self.pre_action_time,
-            post_action_time: Some(SystemTime::now()),
+            post_action_time: Some(Instant::now()),
 
             action_ctx: self.action_ctx,
             reply: Some(reply),
@@ -252,18 +252,17 @@ impl<'a> Context<'a, CtxPostAction> {
             .expect("Context<CtxPostAction> will always contain a reply")
     }
 
-    pub fn pre_action_time(&self) -> SystemTime {
+    pub fn pre_action_time(&self) -> Instant {
         self.pre_action_time
     }
 
-    pub fn post_action_time(&self) -> SystemTime {
+    pub fn post_action_time(&self) -> Instant {
         self.post_action_time
-            .expect("Context<'_, CtxPostAction> will always contain a reply")
+            .expect("Context<'_, CtxPostAction> will always contain a post_action_time")
     }
 
     pub fn action_duration(&self) -> Duration {
         self.post_action_time()
             .duration_since(self.pre_action_time)
-            .expect("post_action_time will always be after pre_action_time")
     }
 }

@@ -45,34 +45,34 @@ impl INodeTable {
             .map(|e| e.path.as_path())
     }
 
+    pub fn ino_for<P: AsRef<Path>>(&mut self, path: P) -> INodeNo {
+        if let Some(ino) = self.by_path(path.as_ref()) {
+            return ino;
+        }
+
+        let ino = INodeNo(self.next_ino);
+        self.next_ino += 1;
+        self.by_path.insert(path.as_ref().to_path_buf(), ino);
+        self.by_ino.insert(
+            ino,
+            INodeEntry {
+                path: path.as_ref().to_path_buf(),
+                nlookup: 0
+            }
+        );
+
+        ino
+    }
+
     // Looks up corresponding ino from a path
     //  if ino is registered => increment nlookup and return ino
     //  else => create new INodeEntry with nlookup at 1 and return new ino
     pub fn get_or_create_ino<P: AsRef<Path>>(&mut self, path: P) -> INodeNo {
-        match self.by_path.get(path.as_ref()) {
-            Some(ino) => {
-                if let Some(entry) = self.by_ino.get_mut(ino) {
-                    entry.nlookup += 1;
-                }
-
-                *ino
-            },
-            None => {
-                let ino = INodeNo(self.next_ino);
-                self.next_ino += 1;
-                self.by_path.insert(
-                    path.as_ref().to_path_buf(),
-                    ino
-                );
-
-                self.by_ino.insert(ino, INodeEntry {
-                    path: path.as_ref().to_path_buf(),
-                    nlookup: 1
-                });
-
-                ino
-            }
+        let ino = self.ino_for(path);
+        if let Some(entry) = self.by_ino.get_mut(&ino) {
+            entry.nlookup += 1;
         }
+        ino
     }
 
 

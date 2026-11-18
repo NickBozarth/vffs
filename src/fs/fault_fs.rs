@@ -266,7 +266,7 @@ impl Filesystem for FaultInjectionFileSystem {
     )
     {
         match self.act_with_rules(
-            ActionCtx::Write { 
+            ActionCtx::Write {
                 req, ino, fh, offset, data,
                 write_flags, flags, lock_owner
             },

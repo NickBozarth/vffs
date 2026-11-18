@@ -40,12 +40,12 @@ pub const fn mask_permission_mode(mode: u32) -> u16 {
     (mode & PERMISSION_MASK) as u16
 }
 
-pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
+pub fn metadata_to_attr(metadata: &Metadata) -> FileAttr {
     let crtime = metadata.created().unwrap_or_else(|_| {
         sec_nsec_to_systime(metadata.mtime(), metadata.mtime_nsec())
     });
 
-    Ok(FileAttr {
+    FileAttr {
         ino: INodeNo(metadata.ino()),
         size: metadata.size(),
         blocks: metadata.blocks(),
@@ -61,7 +61,7 @@ pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
         rdev: metadata.rdev() as u32,
         blksize: metadata.blksize() as u32,
         flags: 0
-    })
+    }
 }
 
 pub fn new_dir_entries(cur_ino: INodeNo, parent_ino: INodeNo) -> Vec<(INodeNo, FileType, OsString)> {

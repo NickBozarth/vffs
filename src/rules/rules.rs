@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{context::{ConditionCallback, Context}, errors::ModError, gen_fn::{GenArg, GenArgs, GenFn}};
+use crate::rules::{context::{ConditionCallback, Context}, errors::{CallbackResult, ModError}, gen_fn::{GenArg, GenArgs, GenFn}};
 
 
 
@@ -232,51 +232,60 @@ pub struct Rule {
 }
 
 impl Rule {
+    fn run_conditions<CT>(
+        &self,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>,
+        ctx: &Context<CT>
+    ) -> CallbackResult<Vec<bool>> {
+        let mut results = Vec::with_capacity(self.conditions.len());
+        for c in &self.conditions {
+            // Grab the condition if it exists and run it
+            let res = match cond_callbacks.get(&c.0.fn_name) {
+                Some(cb) => cb(c.0.args.clone(), ctx),
+                None => Err(ModError::CallbackNotFound)
+            };
+
+            // Parse the result and early return if an error is found
+            match res {
+                Ok(status) => results.push(status),
+                Err(e) => {
+                    let e = e.into_cb_error(
+                        self.name.clone(),
+                        c.0.fn_name.clone()
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+
     pub fn conditions_match<CT>(
         &self,
-        cond_callbacks: &HashMap<String, ConditionCallback<CT>>,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>,
         ctx: &Context<CT>
     ) -> bool {
-        if self.inactive {
+        if self.inactive || self.conditions.is_empty() {
             return false;
         }
 
-        let mut condition_check = self.conditions
-            .iter()
-            .filter_map(|c| {
-                match cond_callbacks.get(&c.0.fn_name) {
-                    Some(cb) => {
-                        let res = cb(c.0.args.clone(), ctx);
-                        match res {
-                            Ok(status) => Some(status),
-                            Err(e) => {
-                                eprint!("{e}");
-                                None
-                            }
-                        }
-                    },
-                    None => {
-                        let e = ModError::CallbackNotFound.into_cb_error(
-                            self.name.clone(),
-                            c.0.fn_name.clone()
-                        );
 
-                        eprintln!("{e}");
-                        None
-                    }
-                }
-            })
-            .peekable();
+        let mut results = match self.run_conditions(cond_callbacks, ctx) {
+            Ok(results) => results.into_iter(),
+            Err(e) => {
+                eprintln!("{e}");
+                return false;
+            }
+        };
 
-        if condition_check.peek().is_none() {
-            return false;
-        }
 
         match self.condition_match_type {
-            MatchType::MatchAll => { condition_check.all(|b| b) }
-            MatchType::MatchOne => { condition_check.any(|b| b) }
-            MatchType::DenyMatchAll => { !condition_check.all(|b| b) }
-            MatchType::DenyMatchOne => { !condition_check.any(|b| b) }
+            MatchType::MatchAll => { results.all(|b| b) }
+            MatchType::MatchOne => { results.any(|b| b) }
+            MatchType::DenyMatchAll => { !results.all(|b| b) }
+            MatchType::DenyMatchOne => { !results.any(|b| b) }
         }
     }
 }

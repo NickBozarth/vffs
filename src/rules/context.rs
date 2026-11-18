@@ -172,7 +172,7 @@ impl<'a> ActionCtx<'a> {
 
 
 pub enum Reply<'a> {
-    Err(&'a mut Errno),
+    Err(Errno),
 
     Lookup(&'a mut FileAttr),
     Forget,
@@ -264,5 +264,9 @@ impl<'a> Context<'a, CtxPostAction> {
     pub fn action_duration(&self) -> Duration {
         self.post_action_time()
             .duration_since(self.pre_action_time)
+    }
+
+    pub fn into_err_reply(&mut self, errno: Errno) {
+        self.reply = Some(Reply::Err(errno));
     }
 }

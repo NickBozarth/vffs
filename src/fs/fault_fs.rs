@@ -32,7 +32,14 @@ impl FaultInjectionFileSystem {
     }
 
     pub fn spawn_mount(self) -> io::Result<BackgroundSession> {
-        // TODO validate rules ... self.rule_manager.validate_callbacks
+        if let Err(errors) = self.rule_manager.validate_callbacks() {
+            let errors = errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(io::Error::other(format!("Invalid rules file:\n{errors}")));
+        }
 
         let mut options = Config::default();
         options.mount_options.extend_from_slice(&[
@@ -61,7 +68,7 @@ impl FaultInjectionFileSystem {
 
         let reply = match &mut res {
             Ok(r) => reply_constructor(r),
-            Err(e) => Reply::Err(e)
+            Err(e) => Reply::Err(*e)
         };
         let mut ctx = ctx.attach_reply(reply);
 
@@ -69,7 +76,13 @@ impl FaultInjectionFileSystem {
             eprintln!("{action_type:?} post-action callback failed: {e}");
         }
 
-        res
+        // Callbacks will mostly just modify the Reply it is given, which essentially holds a &mut res
+        // BUT any Reply may be converted into a Reply::Err
+        // SO Reply::Err is an owned Errno and must be checked
+        match ctx.reply() {
+            Reply::Err(e) => Err(*e),
+            _ => res
+        }
     }
 
 

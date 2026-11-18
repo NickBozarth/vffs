@@ -25,7 +25,12 @@ fn wait_pct(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
     Ok(())
 }
 
-fn 
+fn into_err(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
+    let errno = i32::try_from(args)?;
+    ctx.into_err_reply(fuser::Errno::from_i32(errno));
+
+    Ok(())
+}
 
 fn match_action(args: GenArgs, ctx: &Context<CtxPostAction>) -> ModResult<bool> {
     let act = ActionType::try_from(args)?;

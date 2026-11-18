@@ -8,11 +8,11 @@ pub struct RuleManager {
     rule_filepath: PathBuf,
     rules: Vec<Rule>,
 
-    preconditions: HashMap<String, PreconditionCallback>,
-    postconditions: HashMap<String, PostconditionCallback>,
+    preconditions: IndexMap<String, PreconditionCallback>,
+    postconditions: IndexMap<String, PostconditionCallback>,
 
-    preactions: HashMap<String, PreactionCallback>,
-    postactions: HashMap<String, PostactionCallback>,
+    preactions: IndexMap<String, PreactionCallback>,
+    postactions: IndexMap<String, PostactionCallback>,
 }
 
 impl RuleManager {
@@ -47,11 +47,11 @@ impl RuleManager {
             rule_filepath: rule_filepath.as_ref().to_path_buf(),
             rules,
 
-            preconditions: HashMap::new(),
-            postconditions: HashMap::new(),
+            preconditions: IndexMap::new(),
+            postconditions: IndexMap::new(),
 
-            preactions: HashMap::new(),
-            postactions: HashMap::new()
+            preactions: IndexMap::new(),
+            postactions: IndexMap::new()
         })
     }
 
@@ -129,7 +129,7 @@ impl RuleManager {
 
     fn find_matching_rules<CT>(
         &self,
-        cond_callbacks: &HashMap<String, ConditionCallback<CT>>,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>,
         ctx: &Context<CT>,
         rule_type: RuleType
     ) -> impl Iterator<Item = &Rule>
@@ -144,8 +144,8 @@ impl RuleManager {
 
     fn call_callbacks<CT>(
         &self,
-        action_callbacks: &HashMap<String, ActionCallback<CT>>,
-        cond_callbacks: &HashMap<String, ConditionCallback<CT>>,
+        action_callbacks: &IndexMap<String, ActionCallback<CT>>,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>,
         ctx: &mut Context<CT>,
         rule_type: RuleType
     ) -> Vec<CallbackError> {
@@ -201,5 +201,54 @@ impl RuleManager {
             ctx,
             RuleType::PostAction
         )
+    }
+
+
+    fn find_missing<'a, C>(
+        fn_names: impl Iterator<Item = &'a String>,
+        cb_map: &IndexMap<String, C>
+    ) -> Vec<&'a String> {
+        fn_names.filter(|name| !cb_map.contains_key(*name))
+            .collect()
+    }
+
+    pub fn validate_callbacks(&self) -> Result<(), Vec<CallbackError>> {
+        let mut errors = Vec::new();
+
+        for rule in self.rules.iter().filter(|r| !r.inactive) {
+            let cond_names = rule
+                .conditions
+                .iter()
+                .map(|c| &c.0.fn_name);
+            let mod_names = rule
+                .modifications
+                .iter()
+                .map(|c| &c.0.fn_name);
+
+            let unregistered = match rule.rule_type {
+                RuleType::PreAction => [
+                    Self::find_missing(cond_names, &self.preconditions),
+                    Self::find_missing(mod_names, &self.preactions)
+                ].concat(),
+                RuleType::PostAction => [
+                    Self::find_missing(cond_names, &self.postconditions),
+                    Self::find_missing(mod_names, &self.postactions)
+                ].concat()
+            };
+
+            for unregistered_fn in unregistered {
+                errors.push(ModError::CallbackNotFound.into_cb_error(
+                    rule.name.clone(),
+                    unregistered_fn.clone()
+                ));
+            }
+        }
+
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }

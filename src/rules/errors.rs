@@ -9,7 +9,7 @@ pub enum RuleManagerError {
     Io(std::io::Error),
     #[error("Error attempting to write: {0}")]
     WriteError(std::io::Error),
-    #[error("Error when parsing yaml")]
+    #[error("Error when parsing yaml: {0}")]
     YamlParseError(yaml_serde::Error),
 }
 

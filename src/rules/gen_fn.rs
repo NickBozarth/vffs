@@ -5,6 +5,7 @@ use crate::rules::{errors::GenArgParseError, rules::ActionType};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenFn {
     pub fn_name: String,
+    #[serde(default)]
     pub args: GenArgs
 }
 
@@ -12,10 +13,8 @@ pub struct GenFn {
 
 macro_rules! define_mod_arg {
     ($($variant:ident => $ty:ty),* $(,)?) => {
-        #[derive(Debug, Serialize, Deserialize, PartialEq, Default, Clone)]
+        #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
         pub enum GenArg {
-            #[default]
-            Void,
             $($variant($ty)),*
         }
 
@@ -67,7 +66,7 @@ define_mod_arg!(
 );
 
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GenArgs(pub Vec<GenArg>);
 
 

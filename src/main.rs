@@ -25,14 +25,7 @@ fn wait_pct(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
     Ok(())
 }
 
-fn into_err(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
-    let errno = i32::try_from(args)?;
-    ctx.into_err_reply(fuser::Errno::from_i32(errno));
-
-    Ok(())
-}
-
-fn match_action(args: GenArgs, ctx: &Context<CtxPostAction>) -> ModResult<bool> {
+fn match_action<CT>(args: GenArgs, ctx: &Context<CT>) -> ModResult<bool> {
     let act = ActionType::try_from(args)?;
 
     Ok(match act {
@@ -57,6 +50,7 @@ fn main() {
         Duration::from_secs(1)
     )
         .expect("Failed to create FaultInjectionFileSystem")
+        .with_precondition("match_action", match_action)
         .with_postcondition("match_action", match_action)
         .with_postaction("wait_pct", wait_pct)
         .spawn_mount()

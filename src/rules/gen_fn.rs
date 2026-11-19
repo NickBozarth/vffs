@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{errors::GenArgParseError, rules::ActionType};
+use crate::rules::{errors::GenArgParseError, rules::{ActionType, PreparseCondition}};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct GenFn {
     pub fn_name: String,
     #[serde(default)]
@@ -63,10 +63,11 @@ define_mod_arg!(
     F32    => f32,
     F64    => f64,
     ActionType => ActionType,
+    PreparseCondition => PreparseCondition,
 );
 
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct GenArgs(pub Vec<GenArg>);
 
 

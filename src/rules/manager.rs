@@ -36,6 +36,7 @@ impl RuleManager {
                 })?;
 
             println!("Created new rules file at {:?}", rule_filepath.as_ref());
+            std::process::exit(0);
         } else {
             println!("Using rules file at {:?}", rule_filepath.as_ref());
         }
@@ -87,8 +88,26 @@ impl RuleManager {
             ]
         };
 
+        let cond_or = PreparseRule {
+            inactive: false,
+            rule_type: RuleType::PostAction,
+            condition_match_type: MatchType::MatchAll,
+            conditions: vec![
+                PreparseCondition::OR(
+                    Box::new(
+                        PreparseCondition::ActionType(ActionType::Readdir)
+                    ),
+                    Box::new(PreparseCondition::ActionType(ActionType::Getattr)),
+                )
+            ],
+            modifications: vec![
+                PreparseModification::WaitPctDbg(0.0)
+            ]
+        };
+
         let mut rule_map = IndexMap::new();
         rule_map.insert("Make Readdir take 50% longer".to_string(), wait_50_pct);
+        rule_map.insert("Test cond_or".to_string(), cond_or);
 
         PreparseRules(rule_map)
     }
@@ -216,10 +235,9 @@ impl RuleManager {
         let mut errors = Vec::new();
 
         for rule in self.rules.iter().filter(|r| !r.inactive) {
-            let cond_names = rule
+            let conditions = rule
                 .conditions
-                .iter()
-                .map(|c| &c.0.fn_name);
+                .iter();
             let mod_names = rule
                 .modifications
                 .iter()
@@ -227,11 +245,15 @@ impl RuleManager {
 
             let unregistered = match rule.rule_type {
                 RuleType::PreAction => [
-                    Self::find_missing(cond_names, &self.preconditions),
+                    conditions.flat_map(|c| {
+                        c.validate_callbacks(&self.preconditions)
+                    }).collect(),
                     Self::find_missing(mod_names, &self.preactions)
                 ].concat(),
                 RuleType::PostAction => [
-                    Self::find_missing(cond_names, &self.postconditions),
+                    conditions.flat_map(|c| {
+                        c.validate_callbacks(&self.postconditions)
+                    }).collect(),
                     Self::find_missing(mod_names, &self.postactions)
                 ].concat()
             };

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{context::{ConditionCallback, Context}, errors::{CallbackResult, ModError}, gen_fn::{GenArg, GenArgs, GenFn}};
+use crate::rules::{context::{ConditionCallback, Context}, errors::{CallbackResult, ModError, ModResult}, gen_fn::{GenArg, GenArgs, GenFn}};
 
 
 
@@ -154,6 +154,8 @@ macro_rules! parse_to_gen_fn {
             //     wait_pct(F32 pct, Bool false)
             $fn_name:ident ( $( $arg_type:ident $arg_expr:expr ),* )
         ),*
+
+        $( , ( $( $unreachable_variant:ident ),* ) )?
         // Optional comma delimiter at the end
         $(,)?
     ) => {
@@ -167,32 +169,137 @@ macro_rules! parse_to_gen_fn {
                 },
             )*
 
-            $arm_variant_prefix::Fn(gen_fn) => gen_fn
+            $arm_variant_prefix::Fn(gen_fn) => gen_fn,
+
+
+            $( $( $arm_variant_prefix::$unreachable_variant(..) => unreachable!(), )* )?
         }
     };
 }
 
 
+macro_rules! match_combinators {
+    (
+        $match_on:expr,
+        $arm_variant_prefix:ident,
+        $out_type:ident,
+        $( $combinator:ident ( $( $cb:ident ),* ) $( => $out_expr:expr )? ),*
+        $(,)?
+    ) =>{
+        match $match_on {
+            $(
+                $arm_variant_prefix::$combinator ( $($cb ),* ) => {
+                    match_combinators! {
+                        @match_body
+                        $out_type,
+                        $combinator ( $( $cb ),* ) $( => $out_expr  )?
+                    }
+                }
+            ),*
+
+            _ => {}
+        }
+    };
+
+    (
+        @match_body
+        $out_type:ident,
+        $combinator:ident ( $( $cb:ident ),* )
+    ) => {
+        return $out_type::$combinator ( $( Box::new( $cb.parse() ) ),* )
+    };
+
+    (
+        @match_body
+        $out_type:ident,
+        $combinator:ident ( $( $cb:ident ),* ) => $out_expr:expr
+    ) => {
+        $out_expr
+    };
+}
+
+
+#[derive(Debug, Serialize, Deserialize,PartialEq, Clone)]
+#[repr(transparent)]
+struct PreparseConditionVec(pub Vec<PreparseCondition>);
+
+impl PreparseConditionVec {
+    pub fn parse(self) -> Vec<Condition> {
+        self.0
+            .into_iter()
+            .map(|c| c.parse())
+            .collect()
+    }
+}
+
 // Define a set of condition types
 // The conditions will all just parse to a GenFn when parsed
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize,PartialEq, Clone)]
+#[non_exhaustive]
 pub enum PreparseCondition {
     ActionType(ActionType),
     MatchGlob(String),
 
-    Fn(GenFn)
+    Fn(GenFn),
+
+
+    NOT(Box<PreparseCondition>),
+    AND(Box<PreparseCondition>, Box<PreparseCondition>),
+    NAND(Box<PreparseCondition>, Box<PreparseCondition>),
+    OR(Box<PreparseCondition>, Box<PreparseCondition>),
+    NOR(Box<PreparseCondition>, Box<PreparseCondition>),
+    XOR(Box<PreparseCondition>, Box<PreparseCondition>),
+    IMPLY(Box<PreparseCondition>, Box<PreparseCondition>),
+    NIMPLY(Box<PreparseCondition>, Box<PreparseCondition>),
+    CIMPLY(Box<PreparseCondition>, Box<PreparseCondition>),
+    CNIMPLY(Box<PreparseCondition>, Box<PreparseCondition>),
+
+    ALL(PreparseConditionVec),
+    ANY(PreparseConditionVec),
 }
 
 impl PreparseCondition {
     pub fn parse(self) -> Condition {
+        match_combinators!(
+            self.clone(),
+            Self,
+            Condition,
+            NOT(a),
+            AND(a, b),
+            NAND(a, b),
+            OR(a, b),
+            NOR(a, b),
+            XOR(a, b),
+            IMPLY(a, b),
+            NIMPLY(a, b),
+            CIMPLY(a, b),
+            CNIMPLY(a, b),
+            ALL(cs) => return Condition::ALL(cs.parse()),
+            ANY(cs) => return Condition::ANY(cs.parse())
+        );
+
         let gen_fn = parse_to_gen_fn!(
             self,
             Self,
             ActionType(ty) => match_action(ActionType ty),
-            MatchGlob(glob) => match_glob(String glob)
+            MatchGlob(glob) => match_glob(String glob),
+            (
+                NOT,
+                AND,
+                NAND,
+                OR,
+                NOR,
+                XOR,
+                IMPLY,
+                NIMPLY,
+                CIMPLY,
+                CNIMPLY,
+                ALL,
+                ANY
+            )
         );
 
-        Condition(gen_fn)
+        Condition::Fn(gen_fn)
     }
 }
 
@@ -211,7 +318,7 @@ impl PreparseModification {
             self,
             Self,
             WaitPct(pct) => wait_pct(F32 pct, Bool false),
-            WaitPctDbg(pct) => wait_pct(F32 pct, Bool false)
+            WaitPctDbg(pct) => wait_pct(F32 pct, Bool true),
         );
 
         Modification(gen_fn)
@@ -239,22 +346,12 @@ impl Rule {
     ) -> CallbackResult<Vec<bool>> {
         let mut results = Vec::with_capacity(self.conditions.len());
         for c in &self.conditions {
-            // Grab the condition if it exists and run it
-            let res = match cond_callbacks.get(&c.0.fn_name) {
-                Some(cb) => cb(c.0.args.clone(), ctx),
-                None => Err(ModError::CallbackNotFound)
-            };
+            let res = c.evaluate(cond_callbacks, ctx, &self.name);
 
-            // Parse the result and early return if an error is found
+            // Collect the result and early return if an error is found
             match res {
                 Ok(status) => results.push(status),
-                Err(e) => {
-                    let e = e.into_cb_error(
-                        self.name.clone(),
-                        c.0.fn_name.clone()
-                    );
-                    return Err(e);
-                }
+                Err(e) => return Err(e)
             }
         }
 
@@ -291,6 +388,166 @@ impl Rule {
 }
 
 
-pub struct Condition(pub GenFn);
+pub enum Condition {
+    Fn(GenFn),
+
+    NOT(Box<Condition>),
+    AND(Box<Condition>, Box<Condition>),
+    NAND(Box<Condition>, Box<Condition>),
+    OR(Box<Condition>, Box<Condition>),
+    NOR(Box<Condition>, Box<Condition>),
+    XOR(Box<Condition>, Box<Condition>),
+    IMPLY(Box<Condition>, Box<Condition>),
+    NIMPLY(Box<Condition>, Box<Condition>),
+    CIMPLY(Box<Condition>, Box<Condition>),
+    CNIMPLY(Box<Condition>, Box<Condition>),
+
+    ALL(Vec<Condition>),
+    ANY(Vec<Condition>),
+
+}
+
+impl Condition {
+    pub fn evaluate<CT>(
+        &self,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>,
+        ctx: &Context<CT>,
+        rule_name: &str
+    ) -> CallbackResult<bool> {
+        let res = match self {
+            Self::Fn(f) => {
+                let cb = cond_callbacks.get(&f.fn_name)
+                    .ok_or(ModError::CallbackNotFound.into_cb_error(
+                        rule_name.to_string(),
+                        f.fn_name.clone()
+                    ))?;
+
+                cb(f.args.clone(), ctx)
+                    .map_err(|e| e.into_cb_error(
+                        rule_name.to_string(),
+                        f.fn_name.clone()
+                    ))?
+            },
+
+
+            // !c
+            Self::NOT(c) => !c.evaluate(cond_callbacks, ctx, rule_name)?,
+            // a && b
+            Self::AND(a, b) => {
+                a.evaluate(cond_callbacks, ctx, rule_name)?
+                && b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // !( a && b )
+            Self::NAND(a, b) => {
+                !(
+                    a.evaluate(cond_callbacks, ctx, rule_name)?
+                    && b.evaluate(cond_callbacks, ctx, rule_name)?
+                )
+            }
+            // a || b
+            Self::OR(a, b) => {
+                a.evaluate(cond_callbacks, ctx, rule_name)?
+                || b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // !( a || b )
+            Self::NOR(a, b) => {
+                !(
+                    a.evaluate(cond_callbacks, ctx, rule_name)?
+                    || b.evaluate(cond_callbacks, ctx, rule_name)?
+                )
+            }
+            // a ^ b
+            Self::XOR(a, b) => {
+                a.evaluate(cond_callbacks, ctx, rule_name)?
+                ^ b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // !a || b
+            Self::IMPLY(a, b) => {
+                !a.evaluate(cond_callbacks, ctx, rule_name)?
+                || b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // a && !b
+            Self::NIMPLY(a, b) => {
+                a.evaluate(cond_callbacks, ctx, rule_name)?
+                && !b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // a || !b
+            Self::CIMPLY(a, b) => {
+                a.evaluate(cond_callbacks, ctx, rule_name)?
+                || !b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+            // !a && b
+            Self::CNIMPLY(a, b) => {
+                !a.evaluate(cond_callbacks, ctx, rule_name)?
+                && b.evaluate(cond_callbacks, ctx, rule_name)?
+            }
+
+
+            Self::ALL(cs) => {
+                for c in cs {
+                    if !c.evaluate(cond_callbacks, ctx, rule_name)? {
+                        return Ok(false);
+                    }
+                }
+                true
+            }
+            Self::ANY(cs) => {
+                for c in cs {
+                    if c.evaluate(cond_callbacks, ctx, rule_name)? {
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+        };
+
+        Ok(res)
+    }
+
+
+    pub fn validate_callbacks<CT>(
+        &self,
+        cond_callbacks: &IndexMap<String, ConditionCallback<CT>>
+    ) -> Vec<&String> {
+        match self {
+            Self::Fn(f) => {
+                if cond_callbacks.contains_key(&f.fn_name) {
+                    Vec::new()
+                } else {
+                    vec![&f.fn_name]
+                }
+            }
+            Self::NOT(c) => c.validate_callbacks(cond_callbacks),
+
+            Self::AND(a, b)
+            | Self::NAND(a, b)
+            | Self::OR(a, b)
+            | Self::NOR(a, b)
+            | Self::XOR(a, b)
+            | Self::IMPLY(a, b)
+            | Self::NIMPLY(a, b)
+            | Self::CIMPLY(a, b)
+            | Self::CNIMPLY(a, b) => {
+                [
+                    a.validate_callbacks(cond_callbacks),
+                    b.validate_callbacks(cond_callbacks)
+                ].concat()
+            }
+
+            Self::ALL(cs)
+            | Self::ANY(cs) => {
+                let mut all_invalid = Vec::new();
+                for c in cs {
+                    let invalid = c.validate_callbacks(cond_callbacks);
+                    all_invalid.extend_from_slice(&invalid);
+                }
+                all_invalid
+            }
+        }
+
+    }
+}
+
+
 
 pub struct Modification(pub GenFn);

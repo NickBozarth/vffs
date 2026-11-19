@@ -2,38 +2,9 @@ use std::{sync::mpsc, time::Duration};
 
 use clap::Parser;
 
-use vffs::{fs::fault_fs::FaultInjectionFileSystem, rules::{context::{Context, CtxPostAction}, errors::{ModError, ModResult}, gen_fn::GenArgs, rules::ActionType}};
+use vffs::{fs::fault_fs::FaultInjectionFileSystem};
 
 mod args;
-
-fn wait_pct(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
-    let (pct, debug) = args.try_into()?;
-    let dur = ctx.action_duration()
-        .mul_f32(pct)
-        .div_f32(100.0);
-    std::thread::sleep(dur);
-
-    if debug {
-        println!(
-            "Extended action {} from {:?} to {:?}",
-            ctx.action_type(),
-            ctx.action_duration(),
-            dur
-        );
-    }
-
-    Ok(())
-}
-
-fn match_action<CT>(args: GenArgs, ctx: &Context<CT>) -> ModResult<bool> {
-    let act = ActionType::try_from(args)?;
-
-    Ok(match act {
-        ActionType::All => true,
-        ActionType::None => false,
-        act => act == ctx.action_type()
-    })
-}
 
 
 fn main() {
@@ -50,9 +21,8 @@ fn main() {
         Duration::from_secs(1)
     )
         .expect("Failed to create FaultInjectionFileSystem")
-        .with_precondition("match_action", match_action)
-        .with_postcondition("match_action", match_action)
-        .with_postaction("wait_pct", wait_pct)
+        .with_default_conditions()
+        .with_default_actions()
         .spawn_mount()
         .expect("Failed to mount FUSE session");
 

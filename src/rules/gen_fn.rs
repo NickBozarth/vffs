@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::rules::{errors::GenArgParseError, rules::{ActionType, PreparseCondition}};
@@ -64,11 +66,68 @@ define_mod_arg!(
     F64    => f64,
     ActionType => ActionType,
     PreparseCondition => PreparseCondition,
+    RngSeed => RngSeed,
+    TimeAmount => TimeAmount,
 );
+
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum RngSeed {
+    CurrentTimeAsSeed,
+    Seeded(u64)
+}
+
+impl From<RngSeed> for u64 {
+    fn from(seed: RngSeed) -> Self {
+        match seed {
+            RngSeed::Seeded(seed) => seed,
+            RngSeed::CurrentTimeAsSeed => {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            }
+        }
+    }
+}
+
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct GenArgs(pub Vec<GenArg>);
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub enum TimeAmount {
+    Nanos(u128),
+    Micros(u64),
+    Millis(u64),
+    Secs(u64),
+    Mins(u64),
+    Hours(u64),
+    Days(u64),
+}
+
+const SECS_PER_MIN: u64 = 60;
+const SECS_PER_HOUR: u64 = 3_600;
+const SECS_PER_DAY: u64 = 86_400;
+
+impl From<TimeAmount> for Duration {
+    fn from(amount: TimeAmount) -> Self {
+        match amount {
+            TimeAmount::Nanos(n) => {
+                let secs = u64::try_from(n / 1_000_000_000).unwrap_or(u64::MAX);
+                let nanos = (n % 1_000_000_000) as u32;
+                Duration::new(secs, nanos)
+            }
+            TimeAmount::Micros(us) => Duration::from_micros(us),
+            TimeAmount::Millis(ms) => Duration::from_millis(ms),
+            TimeAmount::Secs(s) => Duration::from_secs(s),
+            TimeAmount::Mins(m) => Duration::from_secs(m.saturating_mul(SECS_PER_MIN)),
+            TimeAmount::Hours(h) => Duration::from_secs(h.saturating_mul(SECS_PER_HOUR)),
+            TimeAmount::Days(d) => Duration::from_secs(d.saturating_mul(SECS_PER_DAY)),
+        }
+    }
+}
 
 
 // Implement TryFrom<GenArgs> for tuples where all elements implement TryFrom<GenArg>.

@@ -14,6 +14,7 @@ pub type PreconditionCallback = ConditionCallback<CtxPreAction>;
 pub type PostconditionCallback = ConditionCallback<CtxPostAction>;
 
 
+#[derive(Debug)]
 pub enum ActionCtx<'a> {
     Lookup {
         req: &'a Request,
@@ -171,6 +172,7 @@ impl<'a> ActionCtx<'a> {
 }
 
 
+#[derive(Debug)]
 pub enum Reply<'a> {
     Err(Errno),
 
@@ -205,7 +207,9 @@ impl Reply<'_> {
 }
 
 
+#[derive(Debug)]
 pub struct CtxPreAction;
+#[derive(Debug)]
 pub struct CtxPostAction;
 
 // Two Contexts will be sent per fs action
@@ -213,6 +217,7 @@ pub struct CtxPostAction;
 // - Once after action occurs
 // reply and post_action_time will always be None if this is a pre-action Context
 // reply and post_action_time will always be Some(_) if this is a post-action Context
+#[derive(Debug)]
 pub struct Context<'a, T> {
     pre_action_time: Instant,
     post_action_time: Option<Instant>,
@@ -230,6 +235,10 @@ impl<'a, T> Context<'a, T> {
     pub fn action_type(&self) -> ActionType {
         self.action_ctx.action_type()
     }
+
+    pub fn pre_action_time(&self) -> Instant {
+        self.pre_action_time
+    }
 }
 
 impl<'a> Context<'a, CtxPreAction> {
@@ -246,14 +255,16 @@ impl<'a> Context<'a, CtxPreAction> {
 }
 
 impl<'a> Context<'a, CtxPostAction> {
-    pub fn reply(&mut self) -> &mut Reply<'a> {
+    pub fn reply(&self) -> &Reply<'a> {
         self.reply
-            .as_mut()
+            .as_ref()
             .expect("Context<CtxPostAction> will always contain a reply")
     }
 
-    pub fn pre_action_time(&self) -> Instant {
-        self.pre_action_time
+    pub fn reply_mut(&mut self) -> &mut Reply<'a> {
+        self.reply
+            .as_mut()
+            .expect("Context<CtxPostAction> will always contain a reply")
     }
 
     pub fn post_action_time(&self) -> Instant {

@@ -1,8 +1,10 @@
 use std::{ffi::OsStr, io, path::{Path, PathBuf}, time::{Duration, SystemTime}};
 
 use fuser::{BackgroundSession, BsdFileFlags, Config, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, TimeOrNow};
+use indexmap::IndexMap;
 
-use crate::{fs::{errors::MapperResult, mapper::{Mapper, SetAttrArgs}}, rules::{context::{ActionCtx, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback, Reply}, errors::RuleManagerResult, manager::RuleManager}};
+use crate::{fs::{errors::MapperResult, mapper::{Mapper, SetAttrArgs}}, rules::{context::{ActionCtx, ConditionCallback, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback, Reply}, errors::RuleManagerResult, manager::RuleManager}};
+use crate::rules::default_callbacks::*;
 
 pub struct FaultInjectionFileSystem {
     mountpoint: PathBuf,
@@ -13,7 +15,7 @@ pub struct FaultInjectionFileSystem {
 
 impl FaultInjectionFileSystem {
     pub fn new<S, M, R>(
-        source_dir: S,
+     source_dir: S,
         mountpoint: M,
         rules: R,
         timeout: Duration
@@ -119,6 +121,31 @@ impl FaultInjectionFileSystem {
         cb: PostactionCallback
     ) -> Self {
         self.rule_manager.add_postaction(cb_name, cb);
+        self
+    }
+
+    pub fn with_default_conditions(mut self) -> Self {
+        self.rule_manager.add_precondition("match_action", match_action);
+        self.rule_manager.add_postcondition("match_action", match_action);
+        self.rule_manager.add_precondition("probability", probability);
+        self.rule_manager.add_postcondition("probability", probability);
+        self.rule_manager.add_precondition("match_pid", match_pid);
+        self.rule_manager.add_postcondition("match_pid", match_pid);
+        self.rule_manager.add_precondition("match_gid", match_gid);
+        self.rule_manager.add_postcondition("match_gid", match_gid);
+        self.rule_manager.add_precondition("match_uid", match_uid);
+        self.rule_manager.add_postcondition("match_uid", match_uid);
+
+        self.rule_manager.add_postcondition("is_err", is_err);
+        self.rule_manager.add_postcondition("err_matches", err_matches);
+        self.rule_manager.add_postcondition("duration_over", duration_over);
+
+        self
+    }
+
+    pub fn with_default_actions(mut self) -> Self {
+        
+
         self
     }
 }

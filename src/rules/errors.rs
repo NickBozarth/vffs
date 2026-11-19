@@ -34,6 +34,8 @@ pub enum ModError {
     Io(std::io::Error),
     #[error("Callback not found")]
     CallbackNotFound,
+    #[error("Attempted to access poisoned mutex")]
+    PoisonedMutex,
 
     #[error("Other {0}")]
     Other(Box<dyn std::error::Error + Send + Sync>)
@@ -57,6 +59,10 @@ impl From<GenArgParseError> for ModError {
 
 impl From<std::io::Error> for ModError {
     fn from(e: std::io::Error) -> Self { Self::Io(e) }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for ModError {
+    fn from(_: std::sync::PoisonError<T>) -> Self { Self::PoisonedMutex }
 }
 
 

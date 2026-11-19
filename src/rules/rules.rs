@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{context::{ConditionCallback, Context}, errors::{CallbackResult, ModError, ModResult}, gen_fn::{GenArg, GenArgs, GenFn}};
+use crate::rules::{context::{ConditionCallback, Context}, errors::{CallbackResult, ModError, ModResult}, gen_fn::{GenArg, GenArgs, GenFn, RngSeed, TimeAmount}};
 
 
 
@@ -105,7 +105,7 @@ impl PreparseRule {
 }
 
 
-// Generalizes pattern to GenFn so that it can be procedurally called later
+// Generalizes pattern to GenFn sothat it can be procedurally called later
 //
 // Structured like
 // {
@@ -221,7 +221,7 @@ macro_rules! match_combinators {
 
 #[derive(Debug, Serialize, Deserialize,PartialEq, Clone)]
 #[repr(transparent)]
-struct PreparseConditionVec(pub Vec<PreparseCondition>);
+pub struct PreparseConditionVec(pub Vec<PreparseCondition>);
 
 impl PreparseConditionVec {
     pub fn parse(self) -> Vec<Condition> {
@@ -238,7 +238,13 @@ impl PreparseConditionVec {
 #[non_exhaustive]
 pub enum PreparseCondition {
     ActionType(ActionType),
-    MatchGlob(String),
+    Probability(f64, RngSeed),
+    MatchPid(u32),
+    MatchUid(u32),
+    MatchGid(u32),
+    IsErr,
+    ErrMatches(i32),
+    DurationOver(TimeAmount),
 
     Fn(GenFn),
 
@@ -282,7 +288,13 @@ impl PreparseCondition {
             self,
             Self,
             ActionType(ty) => match_action(ActionType ty),
-            MatchGlob(glob) => match_glob(String glob),
+            Probability(pct, seed) => probability(F64 pct, RngSeed seed),
+            MatchPid(id) => match_pid(U32 id),
+            MatchUid(id) => match_uid(U32 id),
+            MatchGid(id) => match_gid(U32 id),
+            DurationOver(dur) => duration_over(TimeAmount dur),
+            IsErr => is_err(),
+            ErrMatches(errno) => err_matches(I32 errno),
             (
                 NOT,
                 AND,
@@ -306,8 +318,15 @@ impl PreparseCondition {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PreparseModification {
-    WaitPct(f32),
-    WaitPctDbg(f32),
+    DelayBy(TimeAmount),
+    DelayByPct(f32),
+    MapErrno(i32, i32),
+    FailWithCode(i32),
+    CorruptRead(f64, RngSeed),
+    LogActionCtx(bool),
+    LogActionType,
+    LogReply(bool),
+    LogCtx(bool),
 
     Fn(GenFn)
 }
@@ -317,8 +336,15 @@ impl PreparseModification {
         let gen_fn = parse_to_gen_fn!(
             self,
             Self,
-            WaitPct(pct) => wait_pct(F32 pct, Bool false),
-            WaitPctDbg(pct) => wait_pct(F32 pct, Bool true),
+            DelayBy(amt) => delay_by(TimeAmount amt),
+            DelayByPct(pct) => delay_by_pct(F32 pct),
+            MapErrno(from, to) => map_errno(I32 from, I32 to),
+            FailWithCode(errno) => fail_with_code(I32 errno),
+            CorruptRead(pct, seed) => corrupt_read(F64 pct, RngSeed seed),
+            LogActionCtx(pretty) => log_action_ctx(Bool pretty),
+            LogActionType => log_action_type(),
+            LogReply(pretty) => log_reply(Bool pretty),
+            LogCtx(pretty) => log_ctx(Bool pretty),
         );
 
         Modification(gen_fn)

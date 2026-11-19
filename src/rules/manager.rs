@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::{self, OpenOptions}, io::Write, path::{Path,
 
 use indexmap::IndexMap;
 
-use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackError, CallbackResult, ModError, RuleManagerError, RuleManagerResult}, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
+use crate::rules::{context::{ActionCallback, ConditionCallback, Context, CtxPostAction, CtxPreAction, PostactionCallback, PostconditionCallback, PreactionCallback, PreconditionCallback}, errors::{CallbackError, CallbackResult, ModError, RuleManagerError, RuleManagerResult}, gen_fn::RngSeed, rules::{ActionType, MatchType, PreparseCondition, PreparseModification, PreparseRule, PreparseRules, Rule, RuleType}};
 
 pub struct RuleManager {
     rule_filepath: PathBuf,
@@ -84,7 +84,6 @@ impl RuleManager {
                 PreparseCondition::ActionType(ActionType::Readdir)
             ],
             modifications: vec![
-                PreparseModification::WaitPct(50.0)
             ]
         };
 
@@ -94,14 +93,12 @@ impl RuleManager {
             condition_match_type: MatchType::MatchAll,
             conditions: vec![
                 PreparseCondition::OR(
-                    Box::new(
-                        PreparseCondition::ActionType(ActionType::Readdir)
-                    ),
-                    Box::new(PreparseCondition::ActionType(ActionType::Getattr)),
+                    Box::new(PreparseCondition::Probability(10.0, RngSeed::CurrentTimeAsSeed)),
+                    Box::new(PreparseCondition::Probability(11.0, RngSeed::Seeded(100)))
                 )
             ],
             modifications: vec![
-                PreparseModification::WaitPctDbg(0.0)
+                PreparseModification::LogCtx(true)
             ]
         };
 

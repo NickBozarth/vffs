@@ -245,6 +245,7 @@ pub enum PreparseCondition {
     IsErr,
     ErrMatches(i32),
     DurationOver(TimeAmount),
+    MatchProcessName(String),
 
     Fn(GenFn),
 
@@ -295,6 +296,7 @@ impl PreparseCondition {
             DurationOver(dur) => duration_over(TimeAmount dur),
             IsErr => is_err(),
             ErrMatches(errno) => err_matches(I32 errno),
+            MatchProcessName(name) => match_process_name(String name),
             (
                 NOT,
                 AND,

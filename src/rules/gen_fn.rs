@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{fmt, str::FromStr, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::rules::{errors::GenArgParseError, rules::{ActionType, PreparseCondition}};
 
@@ -95,8 +95,7 @@ impl From<RngSeed> for u64 {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct GenArgs(pub Vec<GenArg>);
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TimeAmount {
     Nanos(u128),
     Micros(u64),
@@ -105,6 +104,57 @@ pub enum TimeAmount {
     Mins(u64),
     Hours(u64),
     Days(u64),
+}
+
+impl fmt::Display for TimeAmount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nanos(n) => write!(f, "{n}ns"),
+            Self::Micros(n) => write!(f, "{n}us"),
+            Self::Millis(n) => write!(f, "{n}ms"),
+            Self::Secs(n) => write!(f, "{n}s"),
+            Self::Mins(n) => write!(f, "{n}m"),
+            Self::Hours(n) => write!(f, "{n}h"),
+            Self::Days(n) => write!(f, "{n}d"),
+        }
+    }
+}
+
+impl FromStr for TimeAmount {
+    type Err = String;
+
+    // Accepts "50ms", "2s", "5 m", ...
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let split = s
+            .find(|c: char| !c.is_ascii_digit())
+            .ok_or_else(|| format!("missing unit in `{s}` (e.g. 50ms)"))?;
+        let (num, unit) = s.split_at(split);
+        let bad = |e| format!("invalid number in `{s}`: {e}");
+
+        Ok(match unit.trim() {
+            "ns" => Self::Nanos(num.parse().map_err(bad)?),
+            "us" => Self::Micros(num.parse().map_err(bad)?),
+            "ms" => Self::Millis(num.parse().map_err(bad)?),
+            "s" => Self::Secs(num.parse().map_err(bad)?),
+            "m" => Self::Mins(num.parse().map_err(bad)?),
+            "h" => Self::Hours(num.parse().map_err(bad)?),
+            "d" => Self::Days(num.parse().map_err(bad)?),
+            other => return Err(format!("unknown unit `{other}` in `{s}` (use ns, us, ms, s, m, h, d)")),
+        })
+    }
+}
+
+impl Serialize for TimeAmount {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for TimeAmount {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 const SECS_PER_MIN: u64 = 60;

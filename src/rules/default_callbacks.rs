@@ -25,6 +25,11 @@ pub fn match_action<CT>(args: GenArgs, ctx: &Context<CT>) -> ModResult<bool> {
 
 pub fn probability<CT>(args: GenArgs, _ctx: &Context<CT>) -> ModResult<bool> {
     let (pct, seed): (f64, RngSeed) = args.try_into()?;
+
+    if pct < 0.0 || pct > 100.0 {
+        return Err(ModError::Other(format!("corrupt_read: pct must be 0..=100, got {pct}").into()));
+    }
+
     static RNG: OnceLock<Mutex<StdRng>> = OnceLock::new();
 
     let rng = RNG.get_or_init(|| {
@@ -70,6 +75,13 @@ pub fn duration_over(args: GenArgs, ctx: &Context<CtxPostAction>) -> ModResult<b
     let duration = Duration::from(time_amount);
 
     Ok(ctx.action_duration() > duration)
+}
+
+pub fn match_process_name<CT>(args: GenArgs, ctx: &mut Context<CT>) -> ModResult<bool> {
+    let name = String::try_from(args)?;
+    let pid = ctx.action_ctx().req().pid();
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"))?;
+    Ok(comm.trim_end() == name)
 }
 
 
@@ -119,34 +131,41 @@ pub fn fail_with_code(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModRes
     Ok(())
 }
 
+
+fn corrupt_bytes<R: RngExt + ?Sized>(buf: &mut[u8], p: f64, rng: &mut R) {
+    for byte in buf.iter_mut() {
+        let mut mask = 0u8;
+        for bit in 0..8 {
+            if rng.random_bool(p) {
+                mask |= 1 << bit;
+            }
+        }
+        *byte ^= mask;
+    }
+}
+
 pub fn corrupt_read(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
     let (pct, seed): (f64, RngSeed) = args.try_into()?;
-    static RNG: OnceLock<Mutex<StdRng>> = OnceLock::new();
 
-    let mut rng = RNG.get_or_init(|| {
-        Mutex::new(StdRng::seed_from_u64(seed.into()))
-    })
+    if pct < 0.0 || pct > 100.0 {
+        return Err(ModError::Other(format!("corrupt_read: pct must be 0..=100, got {pct}").into()))
+    }
+
+    static RNG: OnceLock<Mutex<StdRng>> = OnceLock::new();
+    let mut rng = RNG
+        .get_or_init(|| {Mutex::new(StdRng::seed_from_u64(seed.into()))})
         .lock()?;
 
     let read_buf = match ctx.reply_mut() {
-        Reply::Read(buf) => buf,
+        Reply::Read(buf) => corrupt_bytes(buf, pct / 100.0, &mut rng),
+        Reply::Err(_) => {},
         _ => return Err(ModError::ActionNotCovered(ctx.action_type()))
     };
-
-    for byte in read_buf.iter_mut() {
-        let mut mask = 0;
-        for _ in 0..8 {
-            if !rng.random_bool(pct / 100.0) { mask += 1 };
-            mask <<= 1;
-        }
-
-        *byte &= mask
-    }
 
     Ok(())
 }
 
-pub fn log_action_ctx<CT>(args: GenArgs, ctx: &Context<CT>) -> ModResult<()> {
+pub fn log_action_ctx<CT>(args: GenArgs, ctx: &mut Context<CT>) -> ModResult<()> {
     let pretty = bool::try_from(args)?;
     if pretty {
         println!("ActionCtx: {:#?}", ctx.action_ctx());

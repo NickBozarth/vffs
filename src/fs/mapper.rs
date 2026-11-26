@@ -16,6 +16,17 @@ pub struct SetAttrArgs {
 }
 
 
+fn parent_ino(table: &INodeTable, ino: INodeNo, path: &Path) -> INodeNo {
+    if ino == ROOT {
+        ROOT
+    } else {
+        path.parent()
+            .and_then(|p| table.by_path(p))
+            .unwrap_or(ROOT)
+    }
+}
+
+
 pub struct Mapper {
     table: RwLock<INodeTable>,
     handles: RwLock<HandleManager>
@@ -66,11 +77,10 @@ impl Mapper {
 
     // Retrieve attr from meta
     // We ensure that the requested ino is always returned
-    fn attr(&self, ino: INodeNo, meta: &Metadata) -> MapperResult<FileAttr> {
-        let mut attr = metadata_to_attr(meta)
-            .map_err(MapperError::MetadataParseError)?;
+    fn attr(&self, ino: INodeNo, meta: &Metadata) -> FileAttr {
+        let mut attr = metadata_to_attr(meta);
         attr.ino = ino;
-        Ok(attr)
+        attr
     }
 
     // Retrieves ino of parent of a given ino or path
@@ -101,14 +111,13 @@ impl Mapper {
             .map_err(MapperError::MetadataFetchError)?;
         let ino = self.table_write()?
             .get_or_create_ino(path);
-        self.attr(ino, &meta)
+        Ok(self.attr(ino, &meta))
     }
 
 
     // Subtracts reference count on a given ino and cleans up table if count <= 0
     pub fn forget(&self, ino: INodeNo, nlookup: u64) -> MapperResult<()> {
-        self.table_write()
-            .map_err(|_| MapperError::PoisonError)?
+        self.table_write()?
             .forget(ino, nlookup);
 
         Ok(())
@@ -128,28 +137,27 @@ impl Mapper {
         }
         .map_err(MapperError::MetadataFetchError)?;
 
-        self.attr(ino, &meta)
+        Ok(self.attr(ino, &meta))
     }
 
     // Retrieves a vec of identifiers within a directory
     pub fn list_dir(&self, ino: INodeNo) -> MapperResult<Vec<(INodeNo, FileType, OsString)>> {
         let path = self.path_of(ino)?;
-        let table = self.table_read()?;
 
-        let parent_ino = self.get_parent_ino(ino, Some(&path))?;
+        let mut children = Vec::new();
+        for entry in fs::read_dir(&path).map_err(MapperError::ReadDirError)? {
+             let entry = entry.map_err(MapperError::ReadDirError)?;
+             let Ok(ft) = entry.file_type() else { continue };
+            children.push((entry.path(), type_from_std_type(ft), entry.file_name()));
+        }
 
-        let mut entries = new_dir_entries(ino, parent_ino);
-        for entry in fs::read_dir(path).map_err(MapperError::ReadDirError)? {
-            let entry = entry.map_err(MapperError::ReadDirError)?;
-            let Ok(ft) = entry.file_type() else { continue };
-
-            let child_ino = table.by_path(entry.path())
-                .unwrap_or(INodeNo(entry.ino()));
-
+        let mut table = self.table_write()?;
+        let mut entries = new_dir_entries(ino, parent_ino(&table, ino, &path));
+        for (child_path, kind, name) in children {
             entries.push((
-                child_ino,
-                type_from_std_type(ft),
-                entry.file_name()
+                table.ino_for(child_path),
+                kind,
+                name
             ));
         }
 
@@ -172,6 +180,16 @@ impl Mapper {
                 file.set_permissions(fs::Permissions::from_mode(mode))
                     .map_err(MapperError::Io)?;
             } else {
+                // fs::set_permissions follows symlinks, which we do not want
+                // return error if type is symlink
+                let meta = fs::symlink_metadata(&path)
+                    .map_err(MapperError::MetadataFetchError)?;
+                if meta.file_type().is_symlink() {
+                    return Err(MapperError::Io(
+                        io::Error::from_raw_os_error(libc::EOPNOTSUPP)
+                    ));
+                }
+
                 fs::set_permissions(&path, fs::Permissions::from_mode(mode))
                     .map_err(MapperError::Io)?;
             }
@@ -280,8 +298,11 @@ impl Mapper {
 
     // Flush modified data to disk
     pub fn fsync(&self, fh: FileHandle, datasync: bool) -> MapperResult<()> {
-        self.handles_write()?
-            .fsync(fh, datasync)
-            .map_err(MapperError::ManagerError)
+        let file = self.handles_read()?
+            .get_file(fh)
+            .ok_or(MapperError::FileNotFound)?;
+
+        let res = if datasync { file.sync_data() } else { file.sync_all() };
+        res.map_err(MapperError::Io)
     }
 }

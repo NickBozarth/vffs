@@ -4,7 +4,7 @@ use fuser::{FileAttr, FileType, INodeNo, TimeOrNow};
 
 pub fn sec_nsec_to_systime(secs: i64, nsec: i64) -> SystemTime {
     let nsec = nsec.clamp(0, 999_999_999) as u32;
-    let nsec_dur = Duration::new(0, nsec as u32);
+    let nsec_dur = Duration::new(0, nsec);
     if secs >= 0 {
         UNIX_EPOCH + Duration::from_secs(secs as u64) + nsec_dur
     } else {
@@ -30,8 +30,8 @@ fn resolve_meta_kind(meta: &Metadata) -> FileType {
 
 // Extract permissions from a given u32 mode
 //
-// 3 bits for Special bits
-// 3 bits for Root permissions
+// 3 bits for Special bits (setuid, setgid, sticky)
+// 3 bits for Owner permissions
 // 3 bits for Group permissions
 // 3 bits for Other/World permissions
 // All bits before this may be discarded
@@ -40,12 +40,12 @@ pub const fn mask_permission_mode(mode: u32) -> u16 {
     (mode & PERMISSION_MASK) as u16
 }
 
-pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
+pub fn metadata_to_attr(metadata: &Metadata) -> FileAttr {
     let crtime = metadata.created().unwrap_or_else(|_| {
         sec_nsec_to_systime(metadata.mtime(), metadata.mtime_nsec())
     });
 
-    Ok(FileAttr {
+    FileAttr {
         ino: INodeNo(metadata.ino()),
         size: metadata.size(),
         blocks: metadata.blocks(),
@@ -61,7 +61,7 @@ pub fn metadata_to_attr(metadata: &Metadata) -> io::Result<FileAttr> {
         rdev: metadata.rdev() as u32,
         blksize: metadata.blksize() as u32,
         flags: 0
-    })
+    }
 }
 
 pub fn new_dir_entries(cur_ino: INodeNo, parent_ino: INodeNo) -> Vec<(INodeNo, FileType, OsString)> {
@@ -86,7 +86,7 @@ pub fn to_timespec(t: Option<TimeOrNow>) -> libc::timespec {
         Some(TimeOrNow::Now) => libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_NOW },
         Some(TimeOrNow::SpecificTime(st)) => {
             let d = st.duration_since(UNIX_EPOCH).unwrap_or_default();
-            libc::timespec { tv_sec: d.as_secs() as i64, tv_nsec: d.subsec_nanos() as _ }
+            libc::timespec { tv_sec: d.as_secs() as i64, tv_nsec: d.subsec_nanos() as i64 }
         }
     }
 }

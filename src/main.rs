@@ -2,10 +2,10 @@ use std::{sync::mpsc, time::Duration};
 
 use clap::Parser;
 
-use crate::fs::fault_fs::FaultInjectionFileSystem;
+use vffs::{fs::fault_fs::FaultInjectionFileSystem};
 
-mod fs;
 mod args;
+
 
 fn main() {
     let args = args::Args::parse()
@@ -17,13 +17,17 @@ fn main() {
     let _session_guard = FaultInjectionFileSystem::new(
         args.source_dir,
         args.mountpoint,
+        args.rules_file,
         Duration::from_secs(1)
     )
+        .expect("Failed to create FaultInjectionFileSystem")
+        .with_default_conditions()
+        .with_default_actions()
         .spawn_mount()
-        .expect("Failed to mount FUSE session. Make sure FUSE is installed");
+        .expect("Failed to mount FUSE session");
 
 
-    // Stop thread from completing until ctrlc is enountered
+    // Stop thread from completing until ctrlc is encountered
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || { let _ = tx.send(()); })
         .expect("Failed to setup ctrlc handler");

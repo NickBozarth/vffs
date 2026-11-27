@@ -120,7 +120,7 @@ impl FaultInjectionFileSystem {
         cb_name: &str,
         cb: PostactionCallback
     ) -> Self {
-        self.rule_manager.add_postaction(cb_name, cb);
+     self.rule_manager.add_postaction(cb_name, cb);
         self
     }
 
@@ -144,7 +144,21 @@ impl FaultInjectionFileSystem {
     }
 
     pub fn with_default_actions(mut self) -> Self {
-        
+        self.rule_manager.add_preaction("delay_by", delay_by);
+        self.rule_manager.add_postaction("delay_by", delay_by);
+        self.rule_manager.add_postaction("delay_by_pct", delay_by_pct);
+        self.rule_manager.add_postaction("map_errno", map_errno);
+        self.rule_manager.add_postaction("fail_with_code", fail_with_code);
+        self.rule_manager.add_postaction("corrupt_read", corrupt_read);
+        self.rule_manager.add_preaction("log_action_ctx", log_action_ctx);
+        self.rule_manager.add_postaction("log_action_ctx", log_action_ctx);
+        self.rule_manager.add_preaction("log_action_type", log_action_type);
+        self.rule_manager.add_postaction("log_action_type", log_action_type);
+        self.rule_manager.add_postaction("log_reply", log_reply);
+        self.rule_manager.add_preaction("log_ctx", log_ctx);
+        self.rule_manager.add_postaction("log_ctx", log_ctx);
+        self.rule_manager.add_postaction("log_read_as_string", log_read_as_string);
+
 
         self
     }

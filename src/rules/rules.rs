@@ -155,7 +155,7 @@ macro_rules! parse_to_gen_fn {
             $fn_name:ident ( $( $arg_type:ident $arg_expr:expr ),* )
         ),*
 
-        $( , ( $( $unreachable_variant:ident ),* ) )?
+        $( , ( $( $unreachable_variant:ident $( ( $tuple_expr:tt ) )? ),* $(,)? ) )?
         // Optional comma delimiter at the end
         $(,)?
     ) => {
@@ -172,7 +172,7 @@ macro_rules! parse_to_gen_fn {
             $arm_variant_prefix::Fn(gen_fn) => gen_fn,
 
 
-            $( $( $arm_variant_prefix::$unreachable_variant(..) => unreachable!(), )* )?
+            $( $( $arm_variant_prefix::$unreachable_variant $( ( $tuple_expr ) )? => unreachable!(), )* )?
         }
     };
 }
@@ -183,16 +183,16 @@ macro_rules! match_combinators {
         $match_on:expr,
         $arm_variant_prefix:ident,
         $out_type:ident,
-        $( $combinator:ident ( $( $cb:ident ),* ) $( => $out_expr:expr )? ),*
+        $( $combinator:ident $( ( $( $cb:ident ),* ) )? $( => $out_expr:expr )? ),*
         $(,)?
     ) =>{
         match $match_on {
             $(
-                $arm_variant_prefix::$combinator ( $($cb ),* ) => {
+                $arm_variant_prefix::$combinator $( ( $($cb ),* ) )? => {
                     match_combinators! {
                         @match_body
                         $out_type,
-                        $combinator ( $( $cb ),* ) $( => $out_expr  )?
+                        $combinator $( ( $( $cb ),* ) )? $( => $out_expr  )?
                     }
                 }
             ),*
@@ -212,7 +212,7 @@ macro_rules! match_combinators {
     (
         @match_body
         $out_type:ident,
-        $combinator:ident ( $( $cb:ident ),* ) => $out_expr:expr
+        $combinator:ident $( ( $( $cb:ident ),* ) )? => $out_expr:expr
     ) => {
         $out_expr
     };
@@ -250,6 +250,8 @@ pub enum PreparseCondition {
     Fn(GenFn),
 
 
+    TRUE,
+    FALSE,
     NOT(Box<PreparseCondition>),
     AND(Box<PreparseCondition>, Box<PreparseCondition>),
     NAND(Box<PreparseCondition>, Box<PreparseCondition>),
@@ -271,6 +273,8 @@ impl PreparseCondition {
             self.clone(),
             Self,
             Condition,
+            TRUE => return Condition::TRUE,
+            FALSE => return Condition::FALSE,
             NOT(a),
             AND(a, b),
             NAND(a, b),
@@ -282,7 +286,7 @@ impl PreparseCondition {
             CIMPLY(a, b),
             CNIMPLY(a, b),
             ALL(cs) => return Condition::ALL(cs.parse()),
-            ANY(cs) => return Condition::ANY(cs.parse())
+            ANY(cs) => return Condition::ANY(cs.parse()),
         );
 
         let gen_fn = parse_to_gen_fn!(
@@ -298,18 +302,20 @@ impl PreparseCondition {
             ErrMatches(errno) => err_matches(I32 errno),
             MatchProcessName(name) => match_process_name(String name),
             (
-                NOT,
-                AND,
-                NAND,
-                OR,
-                NOR,
-                XOR,
-                IMPLY,
-                NIMPLY,
-                CIMPLY,
-                CNIMPLY,
-                ALL,
-                ANY
+                TRUE,
+                FALSE,
+                NOT(..),
+                AND(..),
+                NAND(..),
+                OR(..),
+                NOR(..),
+                XOR(..),
+                IMPLY(..),
+                NIMPLY(..),
+                CIMPLY(..),
+                CNIMPLY(..),
+                ALL(..),
+                ANY(..)
             )
         );
 
@@ -329,6 +335,7 @@ pub enum PreparseModification {
     LogActionType,
     LogReply(bool),
     LogCtx(bool),
+    LogReadAsString,
 
     Fn(GenFn)
 }
@@ -347,6 +354,7 @@ impl PreparseModification {
             LogActionType => log_action_type(),
             LogReply(pretty) => log_reply(Bool pretty),
             LogCtx(pretty) => log_ctx(Bool pretty),
+            LogReadAsString => log_read_as_string(),
         );
 
         Modification(gen_fn)
@@ -419,6 +427,8 @@ impl Rule {
 pub enum Condition {
     Fn(GenFn),
 
+    TRUE,
+    FALSE,
     NOT(Box<Condition>),
     AND(Box<Condition>, Box<Condition>),
     NAND(Box<Condition>, Box<Condition>),
@@ -457,6 +467,8 @@ impl Condition {
                     ))?
             },
 
+            Self::TRUE => true,
+            Self::FALSE => false,
 
             // !c
             Self::NOT(c) => !c.evaluate(cond_callbacks, ctx, rule_name)?,
@@ -545,6 +557,10 @@ impl Condition {
                     vec![&f.fn_name]
                 }
             }
+
+            Self::TRUE
+            | Self::FALSE => Vec::new(),
+
             Self::NOT(c) => c.validate_callbacks(cond_callbacks),
 
             Self::AND(a, b)

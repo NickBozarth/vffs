@@ -1,0 +1,16 @@
+# Makes I/O operations fail about 5.0% of the time with an I/O error.
+Maybe Fail:
+  rule_type: PostAction
+  condition_match_type: MatchAll
+  conditions:
+  - !AND
+    - !ANY
+      - !ActionType Read
+      - !ActionType Write
+      - !ActionType Open
+      - !ActionType Release
+    - !Probability
+      - 5.0
+      - !Seeded 42
+  modifications:
+  - !FailWithCode 5

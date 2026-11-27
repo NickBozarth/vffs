@@ -1,0 +1,9 @@
+# Extend reads and writes by 5x
+Slow I/O:
+  rule_type: PostAction
+  condition_match_type: MatchOne
+  conditions:
+  - !ActionType Read
+  - !ActionType Write
+  modifications:
+  - !DelayByPct 400.0

@@ -125,4 +125,4 @@ modifications:
 Requires Linux with FUSE support (`/dev/fuse` and `fusermount`).
 
 ```bash
-cargo run -- -s <path-to-host-directory> -o <path-to-proxy-directory>
+cargo run -- -s <path-to-host-directory> -o <path-to-proxy-directory> [-r <path-to-rules-file>]

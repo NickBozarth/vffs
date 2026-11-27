@@ -1,0 +1,9 @@
+# Extend reads and writes by 20ms
+Slow I/O:
+  rule_type: PreAction
+  condition_match_type: MatchOne
+  conditions:
+  - !ActionType Read
+  - !ActionType Write
+  modifications:
+  - !DelayBy 20ms

@@ -1,0 +1,10 @@
+# Every fsync reports I/O error.
+# The sync has already happened when the error is returned, so this tests
+# how a program reacts to the error, not real data loss.
+fsync fails:
+  rule_type: PostAction
+  condition_match_type: MatchAll
+  conditions:
+  - !ActionType Fsync
+  modifications:
+  - !FailWithCode 5

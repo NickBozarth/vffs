@@ -1,0 +1,11 @@
+# Flip about 0.1% of the bits in data that is read.
+# The file on disk is never changed, only what the reader sees.
+Bit Rot:
+  rule_type: PostAction
+  condition_match_type: MatchAll
+  conditions:
+  - !ActionType Read
+  modifications:
+  - !CorruptRead
+    - 0.1
+    - !Seeded 7

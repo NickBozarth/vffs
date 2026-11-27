@@ -1,0 +1,8 @@
+Log Failed Operations:
+  rule_type: PostAction
+  condition_match_type: MatchAll
+  conditions:
+  - IsErr
+  modifications:
+  - LogActionType
+  - !LogReply false

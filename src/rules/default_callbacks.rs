@@ -156,7 +156,7 @@ pub fn corrupt_read(args: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResul
         .get_or_init(|| {Mutex::new(StdRng::seed_from_u64(seed.into()))})
         .lock()?;
 
-    let read_buf = match ctx.reply_mut() {
+    match ctx.reply_mut() {
         Reply::Read(buf) => corrupt_bytes(buf, pct / 100.0, &mut rng),
         Reply::Err(_) => {},
         _ => return Err(ModError::ActionNotCovered(ctx.action_type()))
@@ -197,5 +197,22 @@ pub fn log_ctx<CT: Debug>(args: GenArgs, ctx: &mut Context<CT>) -> ModResult<()>
     } else {
         println!("Ctx: {ctx:?}");
     }
+    Ok(())
+}
+
+pub fn log_read_as_string(_: GenArgs, ctx: &mut Context<CtxPostAction>) -> ModResult<()> {
+    let buf = match ctx.reply() {
+        Reply::Read(buf) => buf,
+        Reply::Err(_) => return Ok(()),
+        _ => return Err(ModError::ActionNotCovered(ctx.action_type()))
+    };
+
+
+    println!("Intercepted read");
+    match String::from_utf8(buf.to_vec()) {
+        Ok(s) => println!("{s}"),
+        Err(e) => println!("{e}")
+    }
+
     Ok(())
 }

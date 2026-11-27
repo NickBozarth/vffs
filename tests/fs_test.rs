@@ -23,8 +23,6 @@ use tempfile::{tempdir, TempDir};
 use vffs::{
     fs::fault_fs::FaultInjectionFileSystem,
     rules::{
-        context::{CtxPostAction, CtxPreAction},
-        default_callbacks::*,
         gen_fn::{RngSeed, TimeAmount},
         rules::{
             ActionType, MatchType, PreparseCondition as C, PreparseModification as M, PreparseRule,
@@ -88,18 +86,7 @@ impl TempFs {
 
 fn register_all(vfs: FaultInjectionFileSystem) -> FaultInjectionFileSystem {
     vfs.with_default_conditions()
-        .with_preaction("delay_by", delay_by::<CtxPreAction>)
-        .with_postaction("delay_by", delay_by::<CtxPostAction>)
-        .with_postaction("delay_by_pct", delay_by_pct)
-        .with_postaction("map_errno", map_errno)
-        .with_postaction("fail_with_code", fail_with_code)
-        .with_postaction("corrupt_read", corrupt_read)
-        // Needs log_action_ctx to take `&mut Context<CT>` like the other actions
-        .with_postaction("log_action_ctx", log_action_ctx::<CtxPostAction>)
-        .with_preaction("log_action_type", log_action_type::<CtxPreAction>)
-        .with_postaction("log_action_type", log_action_type::<CtxPostAction>)
-        .with_postaction("log_reply", log_reply)
-        .with_postaction("log_ctx", log_ctx::<CtxPostAction>)
+        .with_default_actions()
 }
 
 fn write_rules(path: &Path, rules: Vec<(&str, PreparseRule)>) {
